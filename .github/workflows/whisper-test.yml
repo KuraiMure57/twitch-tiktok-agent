@@ -1,0 +1,30 @@
+name: Whisper Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  whisper-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Check Whisper installation
+        run: |
+          python -c "import whisper; print('Whisper instalado correctamente')"
