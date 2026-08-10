@@ -1,42 +1,21 @@
-name: Prueba Twitch a TikTok
+name: Prueba motor de puntuación
 
 on:
   workflow_dispatch:
 
 jobs:
-  video-test:
+  scoring-test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Instalar herramientas
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          python3 -m pip install -U yt-dlp
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
 
-      - name: Descargar clip de Twitch
-        run: |
-          yt-dlp \
-            "https://www.twitch.tv/kuraimure57/clip/FancyEnjoyableWaffleBCouch-BTDxUctiGJospl2O" \
-            -o "twitch_clip.%(ext)s"
-
-      - name: Mostrar archivo descargado
-        run: |
-          ls -lh
-
-      - name: Convertir a formato vertical 9:16
-        run: |
-          ffmpeg -y \
-            -i twitch_clip.mp4 \
-            -vf "crop=ih*9/16:ih,scale=1080:1920" \
-            -c:v libx264 \
-            -preset fast \
-            -crf 23 \
-            -c:a aac \
-            tiktok_test.mp4
-
-      - name: Guardar vídeo procesado
-        uses: actions/upload-artifact@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
-          name: clip-twitch-9-16
-          path: tiktok_test.mp4
+          python-version: "3.12"
+
+      - name: Ejecutar prueba de puntuación
+        run: |
+          python src/scoring.py
