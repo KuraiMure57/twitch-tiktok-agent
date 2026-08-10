@@ -1,17 +1,38 @@
-name: Test del agente
+name: Prueba de edición de vídeo
 
 on:
   workflow_dispatch:
 
 jobs:
-  test:
+  video-test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Comprobar que GitHub Actions funciona
+      - name: Comprobar FFmpeg
+        run: ffmpeg -version
+
+      - name: Generar vídeo de prueba
         run: |
-          echo "================================"
-          echo "Twitch TikTok Agent"
-          echo "GitHub Actions funciona"
-          echo "================================"
-          date
+          ffmpeg -y \
+            -f lavfi \
+            -i testsrc=size=1920x1080:rate=30 \
+            -t 10 \
+            -pix_fmt yuv420p \
+            original.mp4
+
+      - name: Convertir a formato vertical 9:16
+        run: |
+          ffmpeg -y \
+            -i original.mp4 \
+            -vf "crop=ih*9/16:ih,scale=1080:1920" \
+            -c:v libx264 \
+            -preset fast \
+            -crf 23 \
+            -c:a aac \
+            tiktok_test.mp4
+
+      - name: Guardar vídeo generado
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-prueba-tiktok
+          path: tiktok_test.mp4
