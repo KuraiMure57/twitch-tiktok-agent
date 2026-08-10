@@ -1,0 +1,32 @@
+{
+  "clip_scoring": {
+    "epic_moment": {
+      "weight": 25,
+      "description": "Momento épico, espectacular o especialmente memorable"
+    },
+    "humor": {
+      "weight": 20,
+      "description": "Momento gracioso, absurdo o divertido"
+    },
+    "surprise_reaction": {
+      "weight": 20,
+      "description": "Sorpresa, reacción fuerte o momento inesperado"
+    },
+    "skill_play": {
+      "weight": 15,
+      "description": "Jugada, habilidad o ejecución destacable"
+    },
+    "comment": {
+      "weight": 10,
+      "description": "Frase o comentario especialmente interesante"
+    },
+    "context": {
+      "weight": 10,
+      "description": "Se entiende y resulta interesante sin conocer el directo"
+    }
+  },
+  "decision": {
+    "candidate_threshold": 7,
+    "maximum_score": 10
+  }
+}
