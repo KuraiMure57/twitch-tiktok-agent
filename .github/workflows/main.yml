@@ -1,0 +1,17 @@
+name: Test del agente
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Comprobar que GitHub Actions funciona
+        run: |
+          echo "================================"
+          echo "Twitch TikTok Agent"
+          echo "GitHub Actions funciona"
+          echo "================================"
+          date
