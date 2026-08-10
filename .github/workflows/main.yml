@@ -8,8 +8,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Instalar FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Comprobar FFmpeg
-        run: ffmpeg -version
+        run: |
+          ffmpeg -version
 
       - name: Generar vídeo de prueba
         run: |
@@ -28,7 +34,6 @@ jobs:
             -c:v libx264 \
             -preset fast \
             -crf 23 \
-            -c:a aac \
             tiktok_test.mp4
 
       - name: Guardar vídeo generado
