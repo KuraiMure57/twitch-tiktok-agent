@@ -16,18 +16,22 @@ def transcribe_video(video_path: str, output_path: str) -> None:
     result = model.transcribe(
         str(video),
         language="es",
-        fp16=False
+        fp16=False,
+        word_timestamps=True,
+        condition_on_previous_text=False
     )
 
     with output.open("w", encoding="utf-8") as file:
         for segment in result["segments"]:
-            start = segment["start"]
-            end = segment["end"]
-            text = segment["text"].strip()
+            for word in segment.get("words", []):
+                start = word["start"]
+                end = word["end"]
+                text = word["word"].strip()
 
-            file.write(
-                f"{start:.3f}|{end:.3f}|{text}\n"
-            )
+                if text:
+                    file.write(
+                        f"{start:.3f}|{end:.3f}|{text}\n"
+                    )
 
 
 if __name__ == "__main__":
