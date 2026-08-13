@@ -83,6 +83,14 @@ jobs:
         run: |
           cat ai_input.json
 
+      - name: Validate AI response
+        run: |
+          python src/ai_response_validator.py ai_response_test.json
+
+      - name: Show test AI response
+        run: |
+          cat ai_response_test.json
+
       - name: Build subtitles
         run: |
           python src/subtitle_builder.py output.txt subtitles.txt
