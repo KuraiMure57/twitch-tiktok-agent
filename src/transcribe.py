@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -21,24 +22,51 @@ def transcribe_video(video_path: str, output_path: str) -> None:
         condition_on_previous_text=False
     )
 
-    with output.open("w", encoding="utf-8") as file:
-        for segment in result["segments"]:
-            for word in segment.get("words", []):
-                start = word["start"]
-                end = word["end"]
-                text = word["word"].strip()
+    # Guardar las palabras con sus timestamps
+    words = []
 
-                if text:
-                    file.write(
-                        f"{start:.3f}|{end:.3f}|{text}\n"
-                    )
+    for segment in result["segments"]:
+        for word in segment.get("words", []):
+            text = word["word"].strip()
+
+            if text:
+                words.append({
+                    "start": round(word["start"], 3),
+                    "end": round(word["end"], 3),
+                    "text": text
+                })
+
+    # Guardar JSON estructurado
+    transcription = {
+        "language": "es",
+        "words": words
+    }
+
+    json_output = output.with_suffix(".json")
+
+    with json_output.open("w", encoding="utf-8") as file:
+        json.dump(
+            transcription,
+            file,
+            ensure_ascii=False,
+            indent=2
+        )
+
+    # Mantener también el TXT para nuestras pruebas
+    with output.open("w", encoding="utf-8") as file:
+        for word in words:
+            file.write(
+                f"{word['start']:.3f}|"
+                f"{word['end']:.3f}|"
+                f"{word['text']}\n"
+            )
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print(
             "Uso: python src/transcribe.py "
-            "<video.mp4> <subtitles.txt>"
+            "<video.mp4> <output.txt>"
         )
         sys.exit(1)
 
