@@ -48,6 +48,14 @@ jobs:
       - name: Show formatted subtitles
         run: |
           cat formatted_subtitles.json
+          
+      - name: Correct subtitle text
+        run: |
+          python src/subtitle_corrector.py formatted_subtitles.json corrected_subtitles.json
+
+      - name: Show corrected subtitles
+        run: |
+          cat corrected_subtitles.json
 
       - name: Build subtitles
         run: |
