@@ -31,7 +31,7 @@ jobs:
 
       - name: Transcribe test video
         run: |
-          python src/transcribe.py src/test_clip.mp4 output.txt
+          python src/transcribe.py src/tiktok_test.mp4 output.txt
 
       - name: Show transcription
         run: |
