@@ -28,3 +28,11 @@ jobs:
       - name: Check Whisper installation
         run: |
           python -c "import whisper; print('Whisper instalado correctamente')"
+
+      - name: Transcribe test video
+        run: |
+          python src/transcribe.py src/test_clip.mp4 output.txt
+
+      - name: Show transcription
+        run: |
+          cat output.txt
