@@ -3,20 +3,11 @@ import sys
 from pathlib import Path
 
 
-def format_text(text: str) -> str:
-    """
-    Preparación básica del texto para subtítulos.
+MAX_GAP = 0.8
 
-    De momento no intenta interpretar el contexto.
-    La corrección inteligente se añadirá posteriormente.
-    """
 
-    text = " ".join(text.split()).strip()
-
-    if not text:
-        return ""
-
-    return text
+def clean_text(text: str) -> str:
+    return " ".join(text.split()).strip()
 
 
 def format_transcription(input_path: str, output_path: str) -> None:
@@ -31,23 +22,48 @@ def format_transcription(input_path: str, output_path: str) -> None:
     with input_file.open("r", encoding="utf-8") as file:
         data = json.load(file)
 
-    formatted_segments = []
+    words = data.get("words", [])
 
-    for word in data.get("words", []):
-        text = format_text(word.get("text", ""))
+    if not words:
+        raise ValueError("No se encontraron palabras.")
+
+    segments = []
+
+    current_start = words[0]["start"]
+    current_end = words[0]["end"]
+    current_text = [clean_text(words[0]["text"])]
+
+    for word in words[1:]:
+        text = clean_text(word["text"])
 
         if not text:
             continue
 
-        formatted_segments.append({
-            "start": word["start"],
-            "end": word["end"],
-            "text": text
-        })
+        gap = word["start"] - current_end
+
+        if gap <= MAX_GAP:
+            current_text.append(text)
+            current_end = word["end"]
+        else:
+            segments.append({
+                "start": round(current_start, 3),
+                "end": round(current_end, 3),
+                "text": " ".join(current_text)
+            })
+
+            current_start = word["start"]
+            current_end = word["end"]
+            current_text = [text]
+
+    segments.append({
+        "start": round(current_start, 3),
+        "end": round(current_end, 3),
+        "text": " ".join(current_text)
+    })
 
     result = {
         "language": data.get("language", "es"),
-        "segments": formatted_segments
+        "segments": segments
     }
 
     with output_file.open("w", encoding="utf-8") as file:
