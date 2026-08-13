@@ -37,6 +37,10 @@ jobs:
         run: |
           cat output.txt
 
+      - name: Show transcription JSON
+        run: |
+          cat output.json
+
       - name: Build subtitles
         run: |
           python src/subtitle_builder.py output.txt subtitles.txt
