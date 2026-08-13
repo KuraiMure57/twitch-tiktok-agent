@@ -11,7 +11,7 @@ def transcribe_video(video_path: str, output_path: str) -> None:
     if not video.exists():
         raise FileNotFoundError(f"No existe el vídeo: {video}")
 
-    model = whisper.load_model("base")
+    mmodel = whisper.load_model("small")
 
     result = model.transcribe(
         str(video),
