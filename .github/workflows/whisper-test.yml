@@ -36,3 +36,11 @@ jobs:
       - name: Show transcription
         run: |
           cat output.txt
+
+      - name: Build subtitles
+        run: |
+          python src/subtitle_builder.py output.txt subtitles.txt
+
+      - name: Show grouped subtitles
+        run: |
+          cat subtitles.txt
