@@ -56,6 +56,32 @@ jobs:
       - name: Show corrected subtitles
         run: |
           cat corrected_subtitles.json
+      
+      - name: Build AI input
+        run: |
+          python -c "
+          import json
+
+          with open('corrected_subtitles.json', 'r', encoding='utf-8') as f:
+              subtitles = json.load(f)
+
+          ai_input = {
+              'language': subtitles.get('language', 'es'),
+              'segments': subtitles.get('segments', []),
+              'instructions': {
+                  'correct_transcription': True,
+                  'preserve_timestamps': True,
+                  'return_only_valid_json': True
+              }
+          }
+
+          with open('ai_input.json', 'w', encoding='utf-8') as f:
+              json.dump(ai_input, f, ensure_ascii=False, indent=2)
+          "
+
+      - name: Show AI input
+        run: |
+          cat ai_input.json
 
       - name: Build subtitles
         run: |
