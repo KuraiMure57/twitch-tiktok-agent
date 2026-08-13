@@ -41,10 +41,14 @@ jobs:
         run: |
           cat output.json
 
+      - name: Format subtitle text
+        run: |
+          python src/subtitle_formatter.py output.json formatted_subtitles.json
+
+      - name: Show formatted subtitles
+        run: |
+          cat formatted_subtitles.json
+
       - name: Build subtitles
         run: |
           python src/subtitle_builder.py output.txt subtitles.txt
-
-      - name: Show grouped subtitles
-        run: |
-          cat subtitles.txt
