@@ -24,9 +24,24 @@ RESPONSE_SCHEMA = {
                 },
                 "required": ["start", "end", "text"]
             }
+        },
+        "analysis": {
+            "type": "object",
+            "properties": {
+                "moment_type": {"type": "string"},
+                "emotion": {"type": "string"},
+                "description": {"type": "string"},
+                "is_interesting": {"type": "boolean"}
+            },
+            "required": [
+                "moment_type",
+                "emotion",
+                "description",
+                "is_interesting"
+            ]
         }
     },
-    "required": ["language", "segments"]
+    "required": ["language", "segments", "analysis"]
 }
 
 
@@ -56,24 +71,19 @@ def analyze(video_file, input_file, output_file):
     print("Vídeo procesado correctamente.")
 
     prompt = f"""
-Analiza este clip de vídeo de Twitch junto con la transcripción.
+Analiza este clip de vídeo de Twitch junto con su transcripción.
 
 La transcripción procede de Whisper y puede contener errores.
 
-Tu tarea es corregir la transcripción teniendo en cuenta:
-- el audio;
-- lo que ocurre visualmente en el vídeo;
-- la intención del hablante;
-- el tono y la emoción;
-- el contexto proporcionado.
+Debes realizar DOS tareas:
 
-IMPORTANTE:
+1. CORREGIR LA TRANSCRIPCIÓN
 
-Una frase puede estar gramaticalmente formulada como una pregunta,
-pero ser realmente una reacción de sorpresa o incredulidad.
+Corrige errores evidentes de transcripción, puntuación,
+mayúsculas/minúsculas y expresión emocional.
 
-Debes representar correctamente la intención emocional mediante la
-puntuación, sin cambiar las palabras que realmente se pronuncian.
+Una frase puede estar formulada como una pregunta pero ser
+realmente una reacción de sorpresa, incredulidad, enfado, etc.
 
 Por ejemplo:
 
@@ -83,29 +93,53 @@ si se pronuncia como una reacción de sorpresa puede convertirse en:
 
 "¡¿EN SERIO?!"
 
-No debes convertir automáticamente todas las preguntas en exclamaciones.
-Utiliza el vídeo y el contexto para decidirlo.
+Utiliza el audio, el vídeo y el contexto para decidirlo.
+
+No inventes palabras y mantén exactamente los timestamps originales.
+
+2. ANALIZAR EL MOMENTO DEL VÍDEO
+
+Determina qué está ocurriendo en el clip.
+
+Clasifica el momento utilizando una descripción breve en
+"moment_type", por ejemplo:
+
+- reaction
+- gameplay
+- funny
+- surprising
+- fail
+- achievement
+- intense
+- emotional
+- conversation
+- other
+
+Indica la emoción principal del momento en "emotion".
+
+Explica brevemente qué ocurre en "description".
+
+Indica si consideras que el momento es interesante para
+un posible clip corto en "is_interesting".
+
+IMPORTANTE:
+
+No determines si algo es interesante únicamente por la transcripción.
+Utiliza también lo que ocurre visualmente en el vídeo.
 
 Reglas:
 
-1. Comprende qué ocurre visualmente en el vídeo.
-2. Utiliza el audio y la transcripción.
-3. Corrige errores evidentes de transcripción.
-4. Corrige puntuación.
-5. Corrige mayúsculas y minúsculas cuando sea necesario.
-6. Interpreta correctamente sorpresa, emoción, incredulidad,
-   enfado, alegría u otras reacciones cuando sean evidentes.
-7. Mantén exactamente los timestamps originales.
-8. No inventes palabras.
-9. No elimines segmentos.
-10. Mantén el idioma original.
-11. Devuelve únicamente JSON válido.
+- Mantén el idioma original.
+- Mantén exactamente los timestamps.
+- No elimines segmentos.
+- No inventes palabras.
+- Devuelve únicamente JSON válido.
 
 Información proporcionada:
 
 {json.dumps(ai_input, ensure_ascii=False, indent=2)}
 
-Analiza primero el vídeo y después decide la corrección.
+Analiza primero el vídeo y después genera la respuesta.
 """
 
     print("Enviando vídeo + transcripción a Gemini...")
