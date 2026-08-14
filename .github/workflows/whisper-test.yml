@@ -1,4 +1,4 @@
-name: Whisper Test
+name: whisper-test
 
 on:
   workflow_dispatch:
@@ -8,10 +8,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -21,15 +21,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install openai-whisper
+          pip install google-genai
 
-      - name: Check Whisper installation
+      - name: Check Whisper
         run: |
           python -c "import whisper; print('Whisper instalado correctamente')"
 
-      - name: Transcribe test video
+      - name: Transcribe video
         run: |
           python src/transcribe.py src/tiktok_test.mp4 output.txt
 
@@ -37,32 +38,65 @@ jobs:
         run: |
           cat output.txt
 
+      - name: Generate transcription JSON
+        run: |
+          python -c "
+          import json
+
+          words = []
+
+          with open('output.txt', encoding='utf-8') as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+
+                  parts = line.split('|', 2)
+
+                  if len(parts) != 3:
+                      continue
+
+                  words.append({
+                      'start': float(parts[0]),
+                      'end': float(parts[1]),
+                      'text': parts[2]
+                  })
+
+          data = {
+              'language': 'es',
+              'words': words
+          }
+
+          with open('output.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+          "
+
       - name: Show transcription JSON
         run: |
           cat output.json
 
-      - name: Format subtitle text
+      - name: Format subtitles
         run: |
           python src/subtitle_formatter.py output.json formatted_subtitles.json
 
       - name: Show formatted subtitles
         run: |
           cat formatted_subtitles.json
-          
-      - name: Correct subtitle text
+
+      - name: Correct subtitles
         run: |
           python src/subtitle_corrector.py formatted_subtitles.json corrected_subtitles.json
 
       - name: Show corrected subtitles
         run: |
           cat corrected_subtitles.json
-      
+
       - name: Build AI input
         run: |
           python -c "
           import json
 
-          with open('corrected_subtitles.json', 'r', encoding='utf-8') as f:
+          with open('corrected_subtitles.json', encoding='utf-8') as f:
               subtitles = json.load(f)
 
           ai_input = {
@@ -78,44 +112,35 @@ jobs:
           with open('ai_input.json', 'w', encoding='utf-8') as f:
               json.dump(ai_input, f, ensure_ascii=False, indent=2)
           "
+
       - name: Test Gemini connection
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python src/gemini_test.py
-      - name: Analyze video and subtitles with Gemini
+
+      - name: Analyze video with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python src/gemini_analyzer.py src/tiktok_test.mp4 ai_input.json ai_response.json
-      
+
       - name: Show Gemini response
         run: |
           cat ai_response.json
-      
+
       - name: Validate Gemini response
         run: |
           python src/ai_response_validator.py ai_response.json
+
       - name: Show AI input
         run: |
           cat ai_input.json
 
-      - name: Validate AI response
-        run: |
-          python src/ai_response_validator.py ai_response_test.json
-
-      - name: Build final subtitles
+      - name: Generate final subtitles
         run: |
           python src/ai_response_handler.py ai_response.json final_subtitles.txt
-      
+
       - name: Show final subtitles
         run: |
           cat final_subtitles.txt
-
-      - name: Show test AI response
-        run: |
-          cat ai_response_test.json
-
-      - name: Build subtitles
-        run: |
-          python src/subtitle_builder.py output.txt subtitles.txt
