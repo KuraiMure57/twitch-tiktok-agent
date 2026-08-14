@@ -1,79 +1,66 @@
 import json
 import sys
-from pathlib import Path
 
 
-REQUIRED_SEGMENT_FIELDS = {
-    "start",
-    "end",
-    "text"
-}
-
-
-def validate_response(input_path: str) -> None:
-    input_file = Path(input_path)
-
-    if not input_file.exists():
-        raise FileNotFoundError(
-            f"No existe el archivo: {input_file}"
-        )
-
-    with input_file.open("r", encoding="utf-8") as file:
-        data = json.load(file)
+def validate_response(input_file):
+    with open(input_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
     if not isinstance(data, dict):
-        raise ValueError("La respuesta de la IA debe ser un objeto JSON.")
+        raise ValueError("La respuesta no es un objeto JSON")
+
+    if "language" not in data:
+        raise ValueError("Falta 'language'")
 
     if "segments" not in data:
-        raise ValueError("Falta el campo 'segments'.")
+        raise ValueError("Falta 'segments'")
+
+    if "analysis" not in data:
+        raise ValueError("Falta 'analysis'")
 
     if not isinstance(data["segments"], list):
-        raise ValueError("'segments' debe ser una lista.")
+        raise ValueError("'segments' debe ser una lista")
 
-    for index, segment in enumerate(data["segments"]):
-        if not isinstance(segment, dict):
-            raise ValueError(
-                f"El segmento {index} no es un objeto."
-            )
+    analysis = data["analysis"]
 
-        missing = REQUIRED_SEGMENT_FIELDS - segment.keys()
+    required_analysis = [
+        "moment_type",
+        "emotion",
+        "description",
+        "is_interesting"
+    ]
 
-        if missing:
-            raise ValueError(
-                f"El segmento {index} no contiene: "
-                f"{', '.join(sorted(missing))}"
-            )
+    for field in required_analysis:
+        if field not in analysis:
+            raise ValueError(f"Falta analysis.{field}")
 
-        if not isinstance(segment["start"], (int, float)):
-            raise ValueError(
-                f"El start del segmento {index} no es numérico."
-            )
+    if not isinstance(analysis["is_interesting"], bool):
+        raise ValueError("analysis.is_interesting debe ser booleano")
 
-        if not isinstance(segment["end"], (int, float)):
-            raise ValueError(
-                f"El end del segmento {index} no es numérico."
-            )
+    for segment in data["segments"]:
+        if "start" not in segment:
+            raise ValueError("Segmento sin 'start'")
 
-        if not isinstance(segment["text"], str):
-            raise ValueError(
-                f"El text del segmento {index} no es texto."
-            )
+        if "end" not in segment:
+            raise ValueError("Segmento sin 'end'")
 
-        if segment["end"] < segment["start"]:
-            raise ValueError(
-                f"El segmento {index} tiene tiempos incorrectos."
-            )
+        if "text" not in segment:
+            raise ValueError("Segmento sin 'text'")
+
+        if segment["start"] > segment["end"]:
+            raise ValueError("El inicio no puede ser posterior al final")
 
     print("Respuesta de IA válida.")
     print(f"Segmentos validados: {len(data['segments'])}")
+    print(f"Tipo de momento: {analysis['moment_type']}")
+    print(f"Emoción: {analysis['emotion']}")
+    print(f"Interesante: {analysis['is_interesting']}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print(
-            "Uso: python src/ai_response_validator.py "
-            "<archivo.json>"
+        raise SystemExit(
+            "Uso: python src/ai_response_validator.py ai_response.json"
         )
-        sys.exit(1)
 
     validate_response(sys.argv[1])
