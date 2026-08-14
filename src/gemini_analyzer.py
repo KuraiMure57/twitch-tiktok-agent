@@ -45,12 +45,12 @@ def analyze(video_file, input_file, output_file):
 
     video = client.files.upload(file=video_file)
 
-    while video.state == "PROCESSING":
+    while not video.state or video.state.name != "ACTIVE":
         print("Gemini está procesando el vídeo...")
         time.sleep(2)
         video = client.files.get(name=video.name)
 
-    if video.state == "FAILED":
+    if video.state and video.state.name == "FAILED":
         raise RuntimeError("Gemini no pudo procesar el vídeo")
 
     print("Vídeo procesado correctamente.")
@@ -92,8 +92,9 @@ Analiza también el vídeo antes de decidir la corrección.
                 "text": prompt
             },
             {
-                "type": "file",
-                "file_id": video.name
+                "type": "video",
+                "uri": video.uri,
+                "mime_type": video.mime_type
             }
         ],
         response_format={
