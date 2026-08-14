@@ -113,12 +113,6 @@ jobs:
               json.dump(ai_input, f, ensure_ascii=False, indent=2)
           "
 
-      - name: Test Gemini connection
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          python src/gemini_test.py
-
       - name: Analyze video with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
