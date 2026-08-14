@@ -127,10 +127,6 @@ jobs:
         run: |
           python src/ai_response_validator.py ai_response.json
 
-      - name: Show AI input
-        run: |
-          cat ai_input.json
-
       - name: Calculate clip score
         run: |
           python src/scoring.py ai_response.json scored_response.json
