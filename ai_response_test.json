@@ -4,7 +4,8 @@
     "summary": "Reacción de sorpresa e incredulidad ante lo que ocurre en el vídeo.",
     "emotion": "sorpresa",
     "moment_type": "reaccion",
-    "description": "El hablante reacciona con sorpresa e incredulidad ante lo que acaba de ocurrir."
+    "description": "El hablante reacciona con sorpresa e incredulidad ante lo que acaba de ocurrir.",
+    "is_interesting": true
   },
   "segments": [
     {
