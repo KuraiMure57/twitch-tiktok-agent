@@ -17,6 +17,7 @@ MOMENT_SCORES = {
 
 EMOTION_SCORES = {
     "surprise": 20,
+    "disbelief": 20,
     "joy": 20,
     "anger": 15,
     "fear": 15,
