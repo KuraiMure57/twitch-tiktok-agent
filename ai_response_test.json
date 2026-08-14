@@ -2,7 +2,8 @@
   "language": "es",
   "analysis": {
     "summary": "Reacción de sorpresa e incredulidad ante lo que ocurre en el vídeo.",
-    "emotion": "sorpresa"
+    "emotion": "sorpresa",
+    "moment_type": "reaccion"
   },
   "segments": [
     {
