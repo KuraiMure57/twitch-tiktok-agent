@@ -20,10 +20,6 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run Whisper
-        run: |
-          python src/whisper_test.py src/tiktok_test.mp4
-
       - name: Show Whisper output
         run: |
           cat output.txt
@@ -73,12 +69,6 @@ jobs:
           with open('ai_input.json', 'w', encoding='utf-8') as f:
               json.dump(ai_input, f, ensure_ascii=False, indent=2)
           "
-
-      - name: Test Gemini connection
-        run: |
-          python src/gemini_test.py
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Analyze video with Gemini
         run: |
