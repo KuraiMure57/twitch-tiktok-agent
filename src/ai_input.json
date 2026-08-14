@@ -1,1 +1,25 @@
-
+{
+  "language": "es",
+  "segments": [
+    {
+      "start": 5.88,
+      "end": 6.68,
+      "original_text": "En serio?",
+      "text": "En serio?"
+    }
+  ],
+  "context": {
+    "type": "gaming_stream",
+    "description": "Clip de un streamer jugando a un videojuego. La frase se pronuncia como una reacción de sorpresa.",
+    "speaker_intent": "sorpresa",
+    "tone": "sorprendido"
+  },
+  "instructions": {
+    "correct_transcription": true,
+    "preserve_timestamps": true,
+    "interpret_emotion": true,
+    "use_video_context": true,
+    "correct_punctuation": true,
+    "return_only_valid_json": true
+  }
+}
