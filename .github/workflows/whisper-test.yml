@@ -104,6 +104,14 @@ jobs:
         run: |
           python src/ai_response_validator.py ai_response_test.json
 
+      - name: Build final subtitles
+        run: |
+          python src/ai_response_handler.py ai_response.json final_subtitles.txt
+      
+      - name: Show final subtitles
+        run: |
+          cat final_subtitles.txt
+
       - name: Show test AI response
         run: |
           cat ai_response_test.json
