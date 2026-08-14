@@ -10,12 +10,12 @@ def main():
 
     client = genai.Client(api_key=api_key)
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents="Responde únicamente con: Gemini conectado correctamente."
+    interaction = client.interactions.create(
+        model="gemini-3.6-flash",
+        input="Responde únicamente con: Gemini conectado correctamente."
     )
 
-    print(response.text)
+    print(interaction.output_text)
 
 
 if __name__ == "__main__":
