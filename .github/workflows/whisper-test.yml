@@ -131,6 +131,14 @@ jobs:
         run: |
           cat ai_input.json
 
+      - name: Calculate clip score
+        run: |
+          python src/scoring.py ai_response.json scored_response.json
+
+      - name: Show clip score
+        run: |
+          cat scored_response.json
+
       - name: Generate final subtitles
         run: |
           python src/ai_response_handler.py ai_response.json final_subtitles.txt
