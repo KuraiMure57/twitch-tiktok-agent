@@ -83,7 +83,19 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python src/gemini_test.py
-
+      - name: Analyze subtitles with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python src/gemini_analyzer.py ai_input.json ai_response.json
+      
+      - name: Show Gemini response
+        run: |
+          cat ai_response.json
+      
+      - name: Validate Gemini response
+        run: |
+          python src/ai_response_validator.py ai_response.json
       - name: Show AI input
         run: |
           cat ai_input.json
