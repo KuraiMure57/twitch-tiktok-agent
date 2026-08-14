@@ -9,81 +9,67 @@ from google import genai
 MODEL = "gemini-3.6-flash"
 
 
-RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "language": {"type": "string"},
-        "segments": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "start": {"type": "number"},
-                    "end": {"type": "number"},
-                    "text": {"type": "string"}
-                },
-                "required": ["start", "end", "text"]
-            }
-        },
-        "analysis": {
-            "type": "object",
-            "properties": {
-                "moment_type": {"type": "string"},
-                "emotion": {"type": "string"},
-                "description": {"type": "string"},
-                "is_interesting": {"type": "boolean"}
-            },
-            "required": [
-                "moment_type",
-                "emotion",
-                "description",
-                "is_interesting"
-            ]
-        }
-    },
-    "required": ["language", "segments", "analysis"]
-}
+def upload_video(client, video_path):
+    print("Subiendo vídeo a Gemini...")
+
+    video_file = client.files.upload(file=video_path)
+
+    while True:
+        print("Gemini está procesando el vídeo...")
+
+        file_info = client.files.get(name=video_file.name)
+
+        if file_info.state.name == "ACTIVE":
+            print("Vídeo procesado correctamente.")
+            return file_info
+
+        if file_info.state.name == "FAILED":
+            raise RuntimeError("Gemini no pudo procesar el vídeo.")
+
+        time.sleep(2)
 
 
-def analyze(video_file, input_file, output_file):
+def analyze(video_path, input_path, output_path):
     api_key = os.environ.get("GEMINI_API_KEY")
 
     if not api_key:
-        raise RuntimeError("No se encontró GEMINI_API_KEY")
-
-    with open(input_file, "r", encoding="utf-8") as f:
-        ai_input = json.load(f)
+        raise RuntimeError(
+            "No se ha encontrado la variable GEMINI_API_KEY."
+        )
 
     client = genai.Client(api_key=api_key)
 
-    print("Subiendo vídeo a Gemini...")
+    with open(input_path, "r", encoding="utf-8") as f:
+        ai_input = json.load(f)
 
-    video = client.files.upload(file=video_file)
-
-    while not video.state or video.state.name != "ACTIVE":
-        print("Gemini está procesando el vídeo...")
-        time.sleep(2)
-        video = client.files.get(name=video.name)
-
-        if video.state and video.state.name == "FAILED":
-            raise RuntimeError("Gemini no pudo procesar el vídeo")
-
-    print("Vídeo procesado correctamente.")
+    video_file = upload_video(client, video_path)
 
     prompt = f"""
-Analiza este clip de vídeo de Twitch junto con su transcripción.
+Analiza este clip de vídeo de Twitch junto con la transcripción.
 
 La transcripción procede de Whisper y puede contener errores.
 
-Debes realizar DOS tareas:
+Tu objetivo es determinar si existe un momento interesante para convertir
+este fragmento en un TikTok o Short.
 
-1. CORREGIR LA TRANSCRIPCIÓN
+Analiza:
 
-Corrige errores evidentes de transcripción, puntuación,
-mayúsculas/minúsculas y expresión emocional.
+- lo que ocurre visualmente;
+- el audio;
+- la transcripción;
+- la intención del hablante;
+- el tono;
+- la emoción;
+- el contexto del momento;
+- si el momento tiene potencial para redes sociales.
 
-Una frase puede estar formulada como una pregunta pero ser
-realmente una reacción de sorpresa, incredulidad, enfado, etc.
+IMPORTANTE SOBRE LA TRANSCRIPCIÓN:
+
+Una frase puede estar gramaticalmente formulada como una pregunta,
+pero ser realmente una reacción de sorpresa o incredulidad.
+
+Debes representar correctamente la intención emocional mediante la
+puntuación, sin cambiar las palabras que realmente se pronuncian.
 
 Por ejemplo:
 
@@ -91,55 +77,107 @@ Por ejemplo:
 
 si se pronuncia como una reacción de sorpresa puede convertirse en:
 
-"¡¿EN SERIO?!"
+"¡¿En serio?!"
 
-Utiliza el audio, el vídeo y el contexto para decidirlo.
+No debes convertir automáticamente todas las preguntas en exclamaciones.
+Utiliza el audio y el vídeo para decidirlo.
 
-No inventes palabras y mantén exactamente los timestamps originales.
+REGLAS DE TRANSCRIPCIÓN:
 
-2. ANALIZAR EL MOMENTO DEL VÍDEO
+1. Comprende qué ocurre visualmente.
+2. Utiliza el audio y la transcripción.
+3. Corrige errores evidentes de transcripción.
+4. Corrige la puntuación.
+5. Corrige mayúsculas y minúsculas cuando sea necesario.
+6. Interpreta correctamente sorpresa, emoción, incredulidad, enfado,
+   alegría, miedo, frustración u otras reacciones cuando sean evidentes.
+7. Mantén exactamente los timestamps originales de los segmentos.
+8. No inventes palabras.
+9. No elimines segmentos.
+10. Mantén el idioma original.
 
-Determina qué está ocurriendo en el clip.
+ANÁLISIS DEL CLIP:
 
-Clasifica el momento utilizando una descripción breve en
-"moment_type", por ejemplo:
+Debes determinar:
 
-- reaction
-- gameplay
-- funny
-- surprising
+- el tipo de momento;
+- la emoción principal;
+- una descripción breve;
+- si es interesante;
+- dónde empieza el momento relevante;
+- dónde termina el momento relevante;
+- un posible hook para captar la atención;
+- un posible título.
+
+Los timestamps del clip deben estar dentro del rango del vídeo.
+
+El clip_start debe representar el momento en el que empieza el
+acontecimiento relevante.
+
+El clip_end debe representar el momento en el que termina el
+acontecimiento relevante.
+
+No inventes timestamps arbitrarios. Utiliza el vídeo para decidirlos.
+
+El hook debe ser breve y pensado para captar la atención del espectador.
+
+El title debe ser breve y adecuado para TikTok/YouTube Shorts.
+
+La respuesta DEBE tener exactamente esta estructura:
+
+{{
+  "language": "es",
+  "segments": [
+    {{
+      "start": 0.0,
+      "end": 0.0,
+      "text": "texto"
+    }}
+  ],
+  "analysis": {{
+    "moment_type": "fail",
+    "emotion": "surprise",
+    "description": "Descripción breve del momento.",
+    "is_interesting": true,
+    "clip_start": 0.0,
+    "clip_end": 0.0,
+    "hook": "Texto breve para captar la atención.",
+    "title": "Título del clip."
+  }}
+}}
+
+TIPOS DE MOMENTO POSIBLES:
+
 - fail
+- funny
+- reaction
+- surprise
+- clutch
 - achievement
-- intense
-- emotional
-- conversation
-- other
+- rage
+- interesting
+- normal
 
-Indica la emoción principal del momento en "emotion".
+EMOCIONES POSIBLES:
 
-Explica brevemente qué ocurre en "description".
+- surprise
+- disbelief
+- joy
+- anger
+- fear
+- excitement
+- frustration
+- sadness
+- neutral
 
-Indica si consideras que el momento es interesante para
-un posible clip corto en "is_interesting".
-
-IMPORTANTE:
-
-No determines si algo es interesante únicamente por la transcripción.
-Utiliza también lo que ocurre visualmente en el vídeo.
-
-Reglas:
-
-- Mantén el idioma original.
-- Mantén exactamente los timestamps.
-- No elimines segmentos.
-- No inventes palabras.
-- Devuelve únicamente JSON válido.
+Devuelve ÚNICAMENTE JSON válido.
 
 Información proporcionada:
 
 {json.dumps(ai_input, ensure_ascii=False, indent=2)}
 
-Analiza primero el vídeo y después genera la respuesta.
+Analiza primero el vídeo y después decide la corrección y el potencial
+del clip.
 """
 
     print("Enviando vídeo + transcripción a Gemini...")
@@ -148,25 +186,37 @@ Analiza primero el vídeo y después genera la respuesta.
         model=MODEL,
         input=[
             {
-                "type": "text",
-                "text": prompt
-            },
-            {
-                "type": "video",
-                "uri": video.uri,
-                "mime_type": video.mime_type
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "video",
+                        "file_id": video_file.name
+                    }
+                ]
             }
-        ],
-        response_format={
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": RESPONSE_SCHEMA
-        }
+        ]
     )
 
-    result = json.loads(interaction.output_text)
+    response_text = interaction.outputs[-1].text
 
-    with open(output_file, "w", encoding="utf-8") as f:
+    try:
+        result = json.loads(response_text)
+    except json.JSONDecodeError:
+        cleaned = response_text.strip()
+
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+
+        result = json.loads(cleaned.strip())
+
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(
             result,
             f,
@@ -174,14 +224,19 @@ Analiza primero el vídeo y después genera la respuesta.
             indent=2
         )
 
-    print(f"Respuesta de Gemini guardada en {output_file}")
+    print(f"Respuesta de Gemini guardada en {output_path}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        raise SystemExit(
+        print(
             "Uso: python src/gemini_analyzer.py "
             "video.mp4 ai_input.json ai_response.json"
         )
+        sys.exit(1)
 
-    analyze(sys.argv[1], sys.argv[2], sys.argv[3])
+    analyze(
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3]
+    )
