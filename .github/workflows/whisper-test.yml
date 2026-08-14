@@ -1,4 +1,4 @@
-name: whisper-test
+name: Whisper Test
 
 on:
   workflow_dispatch:
@@ -8,70 +8,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
       - name: Install dependencies
         run: |
-          pip install openai-whisper
-          pip install google-genai
+          pip install -r requirements.txt
 
-      - name: Check Whisper
+      - name: Run Whisper
         run: |
-          python -c "import whisper; print('Whisper instalado correctamente')"
+          python src/whisper_test.py src/tiktok_test.mp4
 
-      - name: Transcribe video
-        run: |
-          python src/transcribe.py src/tiktok_test.mp4 output.txt
-
-      - name: Show transcription
+      - name: Show Whisper output
         run: |
           cat output.txt
 
-      - name: Generate transcription JSON
+      - name: Convert Whisper output to JSON
         run: |
-          python -c "
-          import json
+          python src/whisper_json_converter.py output.txt output.json
 
-          words = []
-
-          with open('output.txt', encoding='utf-8') as f:
-              for line in f:
-                  line = line.strip()
-                  if not line:
-                      continue
-
-                  parts = line.split('|', 2)
-
-                  if len(parts) != 3:
-                      continue
-
-                  words.append({
-                      'start': float(parts[0]),
-                      'end': float(parts[1]),
-                      'text': parts[2]
-                  })
-
-          data = {
-              'language': 'es',
-              'words': words
-          }
-
-          with open('output.json', 'w', encoding='utf-8') as f:
-              json.dump(data, f, ensure_ascii=False, indent=2)
-          "
-
-      - name: Show transcription JSON
+      - name: Show Whisper JSON
         run: |
           cat output.json
 
@@ -96,7 +57,7 @@ jobs:
           python -c "
           import json
 
-          with open('corrected_subtitles.json', encoding='utf-8') as f:
+          with open('corrected_subtitles.json', 'r', encoding='utf-8') as f:
               subtitles = json.load(f)
 
           ai_input = {
@@ -113,32 +74,57 @@ jobs:
               json.dump(ai_input, f, ensure_ascii=False, indent=2)
           "
 
-      - name: Analyze video with Gemini
+      - name: Test Gemini connection
+        run: |
+          python src/gemini_test.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Analyze video with Gemini
         run: |
           python src/gemini_analyzer.py src/tiktok_test.mp4 ai_input.json ai_response.json
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-      - name: Show Gemini response
+      - name: Show AI response
         run: |
           cat ai_response.json
 
-      - name: Validate Gemini response
+      - name: Validate AI response
         run: |
           python src/ai_response_validator.py ai_response.json
 
-      - name: Calculate clip score
+      - name: Show AI input
+        run: |
+          cat ai_input.json
+
+      - name: Calculate score
         run: |
           python src/scoring.py ai_response.json scored_response.json
 
-      - name: Show clip score
+      - name: Show scored response
         run: |
           cat scored_response.json
 
-      - name: Generate final subtitles
+      - name: Build final subtitles
         run: |
           python src/ai_response_handler.py ai_response.json final_subtitles.txt
 
       - name: Show final subtitles
         run: |
           cat final_subtitles.txt
+
+      - name: Extract clip
+        run: |
+          python src/clip_extractor.py \
+            src/tiktok_test.mp4 \
+            ai_response.json \
+            clip.mp4
+
+      - name: Verify clip
+        run: |
+          ls -lh clip.mp4
+          ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            clip.mp4
