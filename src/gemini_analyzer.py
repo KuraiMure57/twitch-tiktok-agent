@@ -186,7 +186,7 @@ del clip.
         model=MODEL,
         input=[
             {
-                "role": "user",
+                "type": "user_input",
                 "content": [
                     {
                         "type": "text",
@@ -194,14 +194,20 @@ del clip.
                     },
                     {
                         "type": "video",
-                        "file_id": video_file.name
+                        "uri": video_file.uri,
+                        "mime_type": video_file.mime_type
                     }
                 ]
             }
         ]
     )
 
-    response_text = interaction.outputs[-1].text
+    response_text = interaction.output_text
+
+    if not response_text:
+        raise RuntimeError(
+            "Gemini no devolvió contenido de texto."
+        )
 
     try:
         result = json.loads(response_text)
