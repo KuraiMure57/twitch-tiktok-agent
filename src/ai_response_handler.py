@@ -23,10 +23,13 @@ def save_subtitles(data, output_file):
 
 
 if __name__ == "__main__":
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    if len(sys.argv) != 3:
+        raise SystemExit(
+            "Uso: python src/ai_response_handler.py "
+            "ai_response.json final_subtitles.txt"
+        )
 
-    data = load_ai_response(input_file)
-    save_subtitles(data, output_file)
+    data = load_ai_response(sys.argv[1])
+    save_subtitles(data, sys.argv[2])
 
-    print(f"Subtítulos finales guardados en {output_file}")
+    print(f"Subtítulos finales guardados en {sys.argv[2]}")
