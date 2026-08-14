@@ -1,50 +1,100 @@
 import json
-from pathlib import Path
+import sys
 
 
-CONFIG_PATH = Path("config/scoring.json")
+MOMENT_SCORES = {
+    "fail": 25,
+    "funny": 25,
+    "reaction": 25,
+    "surprise": 25,
+    "clutch": 30,
+    "achievement": 20,
+    "rage": 20,
+    "interesting": 15,
+    "normal": 0,
+}
 
 
-def load_scoring_config():
-    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
-        return json.load(file)
+EMOTION_SCORES = {
+    "surprise": 20,
+    "joy": 20,
+    "anger": 15,
+    "fear": 15,
+    "excitement": 20,
+    "frustration": 15,
+    "sadness": 5,
+    "neutral": 0,
+}
 
 
-def calculate_score(scores):
-    config = load_scoring_config()
-    criteria = config["clip_scoring"]
+def calculate_score(data):
+    analysis = data.get("analysis", {})
 
-    total = 0
+    moment_type = str(
+        analysis.get("moment_type", "normal")
+    ).lower()
 
-    for criterion, data in criteria.items():
-        value = scores.get(criterion, 0)
+    emotion = str(
+        analysis.get("emotion", "neutral")
+    ).lower()
 
-        # Cada criterio se expresa en una escala de 0 a 10.
-        # Se convierte después según el peso configurado.
-        normalized = value / 10
-        total += normalized * data["weight"]
+    is_interesting = analysis.get("is_interesting", False)
 
-    return round(total / 10, 1)
+    score = 0
+
+    score += MOMENT_SCORES.get(moment_type, 10)
+    score += EMOTION_SCORES.get(emotion, 5)
+
+    if is_interesting is True:
+        score += 30
+
+    score = min(score, 100)
+
+    if score >= 80:
+        category = "excellent"
+    elif score >= 60:
+        category = "good"
+    elif score >= 40:
+        category = "possible"
+    else:
+        category = "weak"
+
+    return {
+        "score": score,
+        "category": category
+    }
 
 
-def is_candidate(score):
-    config = load_scoring_config()
-    threshold = config["decision"]["candidate_threshold"]
+def main():
+    if len(sys.argv) != 3:
+        print(
+            "Uso: python src/scoring.py "
+            "ai_response.json scored_response.json"
+        )
+        sys.exit(1)
 
-    return score >= threshold
+    input_file = sys.argv[1]
+    output_file = sys.argv[2]
+
+    with open(input_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    result = calculate_score(data)
+
+    data["scoring"] = result
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(
+            data,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
+
+    print("Puntuación calculada correctamente.")
+    print(f"Puntuación: {result['score']}/100")
+    print(f"Categoría: {result['category']}")
 
 
 if __name__ == "__main__":
-    example_scores = {
-        "epic_moment": 8,
-        "humor": 6,
-        "surprise_reaction": 9,
-        "skill_play": 8,
-        "comment": 4,
-        "context": 9
-    }
-
-    score = calculate_score(example_scores)
-
-    print(f"Puntuación: {score}/10")
-    print(f"Candidato: {'Sí' if is_candidate(score) else 'No'}")
+    main()
