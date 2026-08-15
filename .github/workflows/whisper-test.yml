@@ -170,3 +170,10 @@ jobs:
           name: final-tiktok
           path: final_tiktok.mp4
           if-no-files-found: error
+
+      - name: Upload metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-metadata
+          path: metadata.json
+          if-no-files-found: error
