@@ -22,7 +22,7 @@ jobs:
 
       - name: Transcribe video
         run: |
-          python src/transcribe.py src/tiktok_test.mp4
+          python src/transcribe.py src/tiktok_test.mp4 output.txt
 
       - name: Show Whisper output
         run: |
