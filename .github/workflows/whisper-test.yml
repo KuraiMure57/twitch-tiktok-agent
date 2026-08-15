@@ -146,9 +146,29 @@ jobs:
             -of default=noprint_wrappers=1:nokey=1 \
             final_clip.mp4
 
-      - name: Upload final clip
+      - name: Convert final clip to vertical 9:16
+        run: |
+          ffmpeg -y \
+            -i final_clip.mp4 \
+            -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
+            -c:v libx264 \
+            -preset medium \
+            -crf 20 \
+            -c:a aac \
+            -b:a 192k \
+            vertical_clip.mp4
+
+      - name: Verify vertical clip
+        run: |
+          ls -lh vertical_clip.mp4
+          ffprobe -v error \
+            -show_entries stream=width,height \
+            -of default=noprint_wrappers=1 \
+            vertical_clip.mp4
+
+      - name: Upload final vertical clip
         uses: actions/upload-artifact@v4
         with:
-          name: final-tiktok-clip
-          path: final_clip.mp4
+          name: final-tiktok-vertical
+          path: vertical_clip.mp4
           if-no-files-found: error
