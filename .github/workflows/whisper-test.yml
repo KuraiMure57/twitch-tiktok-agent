@@ -113,7 +113,9 @@ jobs:
 
       - name: Build final subtitles
         run: |
-          python src/ai_response_handler.py ai_response.json final_subtitles.txt
+          python src/ai_response_handler.py \
+            ai_response.json \
+            final_subtitles.txt
 
       - name: Show final subtitles
         run: |
@@ -164,16 +166,20 @@ jobs:
             -of default=noprint_wrappers=1:nokey=1 \
             final_tiktok.mp4
 
-      - name: Upload final TikTok
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-tiktok
-          path: final_tiktok.mp4
-          if-no-files-found: error
+      - name: Prepare publication package
+        run: |
+          mkdir -p publication_package
+          cp final_tiktok.mp4 publication_package/
+          cp metadata.json publication_package/
 
-      - name: Upload metadata
+      - name: Show publication package
+        run: |
+          ls -lh publication_package/
+          cat publication_package/metadata.json
+
+      - name: Upload publication package
         uses: actions/upload-artifact@v4
         with:
-          name: clip-metadata
-          path: metadata.json
+          name: tiktok-publication-package
+          path: publication_package/
           if-no-files-found: error
