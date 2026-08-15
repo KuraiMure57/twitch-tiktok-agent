@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -9,7 +10,6 @@ from pathlib import Path
 import requests
 
 
-DEFAULT_TIMEOUT_SECONDS = 2 * 60 * 60
 POLL_TIMEOUT_SECONDS = 20
 
 
@@ -17,7 +17,7 @@ class TelegramError(RuntimeError):
     pass
 
 
-def api_call(token: str, method: str, data=None, files=None):
+def api_call(token, method, data=None, files=None):
     url = f"https://api.telegram.org/bot{token}/{method}"
 
     if files:
@@ -35,23 +35,24 @@ def api_call(token: str, method: str, data=None, files=None):
         )
 
     if not response.ok:
-        print("Respuesta de Telegram:")
+        print("RESPUESTA DE TELEGRAM:")
         print(response.text)
         raise TelegramError(
             f"Telegram API HTTP error in {method}: "
             f"{response.status_code} - {response.text}"
         )
-    
+
     payload = response.json()
-    
+
     if not payload.get("ok"):
         raise TelegramError(
             f"Telegram API error in {method}: {payload}"
         )
+
     return payload["result"]
 
 
-def clear_pending_updates(token: str) -> int | None:
+def clear_pending_updates(token):
     updates = api_call(
         token,
         "getUpdates",
@@ -71,11 +72,21 @@ def clear_pending_updates(token: str) -> int | None:
     ) + 1
 
 
-def build_caption(metadata: dict) -> str:
-    title = metadata.get("title") or "Clip para revisión"
-    hook = metadata.get("hook") or ""
-    description = metadata.get("description") or ""
-    hashtags = metadata.get("hashtags") or []
+def build_caption(metadata):
+    title = metadata.get(
+        "title",
+        "Clip para revisión",
+    )
+
+    hook = metadata.get("hook", "")
+    description = metadata.get(
+        "description",
+        "",
+    )
+    hashtags = metadata.get(
+        "hashtags",
+        [],
+    )
     score = metadata.get("score")
 
     lines = [
@@ -134,11 +145,11 @@ def review_keyboard():
 
 
 def send_video(
-    token: str,
-    chat_id: str,
-    video_path: Path,
-    metadata: dict,
-) -> int:
+    token,
+    chat_id,
+    video_path,
+    metadata,
+):
     if not video_path.exists():
         raise FileNotFoundError(
             f"No existe el vídeo: {video_path}"
@@ -181,10 +192,10 @@ def send_video(
 
 
 def answer_callback(
-    token: str,
-    callback_id: str,
-    text: str,
-) -> None:
+    token,
+    callback_id,
+    text,
+):
     api_call(
         token,
         "answerCallbackQuery",
@@ -196,11 +207,11 @@ def answer_callback(
 
 
 def edit_review_message(
-    token: str,
-    chat_id: str,
-    message_id: int,
-    caption: str,
-) -> None:
+    token,
+    chat_id,
+    message_id,
+    caption,
+):
     api_call(
         token,
         "editMessageCaption",
@@ -209,17 +220,19 @@ def edit_review_message(
             "message_id": message_id,
             "caption": caption,
             "reply_markup": json.dumps(
-                {"inline_keyboard": []}
+                {
+                    "inline_keyboard": []
+                }
             ),
         },
     )
 
 
 def send_message(
-    token: str,
-    chat_id: str,
-    text: str,
-) -> None:
+    token,
+    chat_id,
+    text,
+):
     api_call(
         token,
         "sendMessage",
@@ -230,7 +243,7 @@ def send_message(
     )
 
 
-def read_subtitles(path: Path) -> list[dict]:
+def read_subtitles(path):
     if not path.exists():
         raise FileNotFoundError(
             f"No existe el archivo de subtítulos: {path}"
@@ -267,9 +280,9 @@ def read_subtitles(path: Path) -> list[dict]:
 
 
 def write_subtitles(
-    path: Path,
-    segments: list[dict],
-) -> None:
+    path,
+    segments,
+):
     with path.open(
         "w",
         encoding="utf-8",
@@ -283,10 +296,10 @@ def write_subtitles(
 
 
 def format_subtitles_for_telegram(
-    segments: list[dict],
-) -> str:
+    segments,
+):
     lines = [
-        "📝 Subtítulos actuales:",
+        "📝 SUBTÍTULOS ACTUALES",
         "",
     ]
 
@@ -294,30 +307,99 @@ def format_subtitles_for_telegram(
         segments,
         start=1,
     ):
+        text = segment.get(
+            "text",
+            "",
+        ).strip()
+
+        if not text:
+            text = "[sin texto]"
+
         lines.append(
-            f"{index}. "
-            f"{segment['start']} → "
-            f"{segment['end']}: "
-            f"{segment['text']}"
+            f"{index}. {text}"
         )
 
     lines.extend([
         "",
-        "Envía la corrección así:",
-        "1|Texto corregido",
-        "2|Otro texto corregido",
+        "✏️ PARA CORREGIR:",
         "",
-        "Si solo hay un subtítulo, también puedes "
-        "enviar directamente el texto nuevo.",
+        "1. Texto corregido",
+        "2. Otro texto corregido",
+        "",
+        "➕ PARA AÑADIR TEXTO CON TIEMPOS:",
+        "",
+        "3. [2.40-3.20] Texto nuevo",
+        "",
+        "Si no pones tiempos, se mantienen "
+        "los tiempos actuales.",
     ])
 
     return "\n".join(lines)
 
 
+def parse_correction_line(line):
+    """
+    Acepta:
+
+    1. Texto
+    1 Texto
+    1. [2.40-3.20] Texto
+    1|Texto
+
+    Devuelve:
+
+    index, start, end, text
+    """
+
+    line = line.strip()
+
+    if not line:
+        return None
+
+    match = re.match(
+        r"^(\d+)\s*[\.\|]?\s*(.*)$",
+        line,
+    )
+
+    if not match:
+        return None
+
+    index = int(
+        match.group(1)
+    )
+
+    content = match.group(2).strip()
+
+    start = None
+    end = None
+
+    time_match = re.match(
+        r"^\["
+        r"\s*(\d+(?:\.\d+)?)"
+        r"\s*-\s*"
+        r"(\d+(?:\.\d+)?)"
+        r"\s*\]"
+        r"\s*(.*)$",
+        content,
+    )
+
+    if time_match:
+        start = time_match.group(1)
+        end = time_match.group(2)
+        content = time_match.group(3).strip()
+
+    return (
+        index,
+        start,
+        end,
+        content,
+    )
+
+
 def apply_corrections(
-    segments: list[dict],
-    correction_text: str,
-) -> tuple[list[dict], bool]:
+    segments,
+    correction_text,
+):
     lines = [
         line.strip()
         for line in correction_text.splitlines()
@@ -332,48 +414,57 @@ def apply_corrections(
         for segment in segments
     ]
 
-    if (
-        len(updated) == 1
-        and "|" not in lines[0]
-    ):
-        updated[0]["text"] = lines[0]
-        return updated, True
-
     changed = False
 
     for line in lines:
-        if "|" not in line:
-            continue
-
-        index_text, new_text = line.split(
-            "|",
-            1,
+        parsed = parse_correction_line(
+            line
         )
 
-        try:
-            index = int(index_text.strip())
-        except ValueError:
+        if parsed is None:
             continue
+
+        (
+            index,
+            new_start,
+            new_end,
+            new_text,
+        ) = parsed
 
         if not 1 <= index <= len(updated):
             continue
 
-        new_text = new_text.strip()
+        segment = updated[index - 1]
 
-        if not new_text:
-            continue
+        if new_start is not None:
+            try:
+                start_value = float(
+                    new_start
+                )
+                end_value = float(
+                    new_end
+                )
+            except ValueError:
+                continue
 
-        updated[index - 1]["text"] = new_text
+            if end_value <= start_value:
+                continue
+
+            segment["start"] = new_start
+            segment["end"] = new_end
+
+        segment["text"] = new_text
+
         changed = True
 
     return updated, changed
 
 
 def update_review_state(
-    path: Path,
-    status: str,
-    correction: str | None = None,
-) -> None:
+    path,
+    status,
+    correction=None,
+):
     with path.open(
         "r",
         encoding="utf-8",
@@ -415,10 +506,10 @@ def update_review_state(
 
 
 def rerender_video(
-    tiktok_video: Path,
-    subtitles: Path,
-    output_video: Path,
-) -> None:
+    tiktok_video,
+    subtitles,
+    output_video,
+):
     command = [
         sys.executable,
         "src/subtitle_burner.py",
@@ -434,9 +525,9 @@ def rerender_video(
 
 
 def get_updates(
-    token: str,
-    offset: int | None,
-) -> list[dict]:
+    token,
+    offset,
+):
     data = {
         "limit": 100,
         "timeout": POLL_TIMEOUT_SECONDS,
@@ -453,15 +544,15 @@ def get_updates(
 
 
 def run_review(
-    token: str,
-    chat_id: str,
-    video_path: Path,
-    metadata_path: Path,
-    review_state_path: Path,
-    subtitles_path: Path,
-    vertical_video_path: Path,
-    timeout_seconds: int,
-) -> str:
+    token,
+    chat_id,
+    video_path,
+    metadata_path,
+    review_state_path,
+    subtitles_path,
+    vertical_video_path,
+    timeout_seconds,
+):
     with metadata_path.open(
         "r",
         encoding="utf-8",
@@ -525,7 +616,10 @@ def run_review(
                     message.get(
                         "chat",
                         {},
-                    ).get("id", "")
+                    ).get(
+                        "id",
+                        "",
+                    )
                 )
 
                 if callback_chat != str(
@@ -614,7 +708,10 @@ def run_review(
                 message.get(
                     "chat",
                     {},
-                ).get("id", "")
+                ).get(
+                    "id",
+                    "",
+                )
             )
 
             if message_chat != str(
@@ -641,10 +738,12 @@ def run_review(
                 send_message(
                     token,
                     chat_id,
-                    "No he podido interpretar "
+                    "❌ No he podido interpretar "
                     "la corrección.\n\n"
                     "Ejemplo:\n"
-                    "1|¿Pero qué acaba de pasar?",
+                    "1. ¿Pero qué acaba de pasar?\n\n"
+                    "Para añadir texto con tiempos:\n"
+                    "2. [2.40-3.20] ¡Madre mía!",
                 )
                 continue
 
@@ -683,7 +782,9 @@ def run_review(
                 token,
                 chat_id,
                 "🔄 Vídeo regenerado con tu "
-                "corrección. Revísalo de nuevo.",
+                "corrección.\n\n"
+                "Revísalo de nuevo y "
+                "autorízalo cuando esté listo.",
             )
 
             waiting_for_correction = False
