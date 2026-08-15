@@ -101,6 +101,16 @@ jobs:
         run: |
           cat scored_response.json
 
+      - name: Generate clip metadata
+        run: |
+          python src/metadata_generator.py \
+            scored_response.json \
+            metadata.json
+
+      - name: Show clip metadata
+        run: |
+          cat metadata.json
+
       - name: Build final subtitles
         run: |
           python src/ai_response_handler.py ai_response.json final_subtitles.txt
