@@ -213,8 +213,10 @@ jobs:
         if: steps.telegram_review.outputs.status == 'approved'
         run: |
           ls -lh publication_package/
+
           echo "--- metadata.json ---"
           cat publication_package/metadata.json
+
           echo "--- review_state.json ---"
           cat publication_package/review_state.json
 
@@ -225,6 +227,20 @@ jobs:
           name: tiktok-publication-package
           path: publication_package/
           if-no-files-found: error
+
+      - name: Publish approved clip to TikTok
+        if: steps.telegram_review.outputs.status == 'approved'
+        run: |
+          python src/tiktok_uploader.py \
+            final_tiktok.mp4 \
+            metadata.json
+        env:
+          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+
+      - name: Show TikTok publication result
+        if: steps.telegram_review.outputs.status == 'approved'
+        run: |
+          cat tiktok_result.json
 
       - name: Report rejected clip
         if: steps.telegram_review.outputs.status == 'rejected'
