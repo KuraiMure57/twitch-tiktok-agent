@@ -33,6 +33,10 @@ jobs:
         run: |
           cat output.txt
 
+      - name: Convert Whisper output to JSON
+        run: |
+          python src/whisper_json_converter.py output.txt output.json
+
       - name: Show Whisper JSON
         run: |
           cat output.json
@@ -124,51 +128,17 @@ jobs:
             -of default=noprint_wrappers=1:nokey=1 \
             clip.mp4
 
-      - name: Upload generated clip
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-clip
-          path: clip.mp4
-          if-no-files-found: error
-
-      - name: Burn subtitles into clip
+      - name: Create vertical TikTok video
         run: |
-          python src/subtitle_burner.py \
+          python src/video_editor.py \
             clip.mp4 \
-            final_subtitles.txt \
-            final_clip.mp4
+            tiktok_clip.mp4
 
-      - name: Verify final clip
+      - name: Verify vertical TikTok video
         run: |
-          ls -lh final_clip.mp4
+          ls -lh tiktok_clip.mp4
           ffprobe -v error \
-            -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 \
-            final_clip.mp4
-
-      - name: Convert final clip to vertical 9:16
-        run: |
-          ffmpeg -y \
-            -i final_clip.mp4 \
-            -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" \
-            -c:v libx264 \
-            -preset medium \
-            -crf 20 \
-            -c:a aac \
-            -b:a 192k \
-            vertical_clip.mp4
-
-      - name: Verify vertical clip
-        run: |
-          ls -lh vertical_clip.mp4
-          ffprobe -v error \
+            -select_streams v:0 \
             -show_entries stream=width,height \
             -of default=noprint_wrappers=1 \
-            vertical_clip.mp4
-
-      - name: Upload final vertical clip
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-tiktok-vertical
-          path: vertical_clip.mp4
-          if-no-files-found: error
+            tiktok_clip.mp4
