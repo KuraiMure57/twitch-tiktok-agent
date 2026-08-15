@@ -37,6 +37,7 @@ def api_call(token, method, data=None, files=None):
     if not response.ok:
         print("RESPUESTA DE TELEGRAM:")
         print(response.text)
+
         raise TelegramError(
             f"Telegram API HTTP error in {method}: "
             f"{response.status_code} - {response.text}"
@@ -79,14 +80,17 @@ def build_caption(metadata):
     )
 
     hook = metadata.get("hook", "")
+
     description = metadata.get(
         "description",
         "",
     )
+
     hashtags = metadata.get(
         "hashtags",
         [],
     )
+
     score = metadata.get("score")
 
     lines = [
@@ -255,6 +259,7 @@ def read_subtitles(path):
         "r",
         encoding="utf-8",
     ) as file:
+
         for line in file:
             line = line.rstrip("\n")
 
@@ -287,6 +292,7 @@ def write_subtitles(
         "w",
         encoding="utf-8",
     ) as file:
+
         for segment in segments:
             file.write(
                 f"{segment['start']}|"
@@ -319,6 +325,8 @@ def format_subtitles_for_telegram(
             f"{index}. {text}"
         )
 
+    next_number = len(segments) + 1
+
     lines.extend([
         "",
         "✏️ PARA CORREGIR:",
@@ -328,7 +336,7 @@ def format_subtitles_for_telegram(
         "",
         "➕ PARA AÑADIR TEXTO CON TIEMPOS:",
         "",
-        "3. [0.7-0.12] Texto nuevo",
+        f"{next_number}. [0.00-0.7] Texto nuevo",
         "",
         "⏱️ FORMATO DE TIEMPOS:",
         "Antes del punto = minutos",
@@ -337,11 +345,12 @@ def format_subtitles_for_telegram(
         "0.7 = 7 segundos",
         "0.12 = 12 segundos",
         "1.2 = 1 minuto y 2 segundos",
+        "1.15 = 1 minuto y 15 segundos",
         "7 = 7 minutos",
         "7.50 = 7 minutos y 50 segundos",
         "",
-        "Sin [inicio-fin] se mantienen "
-        "los tiempos actuales.",
+        "Si no pones [inicio-fin],",
+        "se mantienen los tiempos actuales.",
     ])
 
     return "\n".join(lines)
@@ -349,17 +358,19 @@ def format_subtitles_for_telegram(
 
 def parse_custom_time(value):
     """
-    Convierte el formato minutos.segundos a segundos.
+    Formato:
+
+    minutos.segundos
 
     Ejemplos:
 
-    0.7  -> 7 segundos
-    0.12 -> 12 segundos
-    1.2  -> 1 minuto y 2 segundos
-    1.15 -> 1 minuto y 15 segundos
-    7    -> 7 minutos
-    7.5  -> 7 minutos y 5 segundos
-    7.50 -> 7 minutos y 50 segundos
+    0.7  = 00:07
+    0.12 = 00:12
+    1.2  = 01:02
+    1.15 = 01:15
+    7    = 07:00
+    7.5  = 07:05
+    7.50 = 07:50
     """
 
     value = value.strip()
@@ -370,10 +381,14 @@ def parse_custom_time(value):
         )
 
     if "." in value:
-        minutes_text, seconds_text = value.split(
+
+        parts = value.split(
             ".",
             1,
         )
+
+        minutes_text = parts[0]
+        seconds_text = parts[1]
 
         if not minutes_text.isdigit():
             raise ValueError(
@@ -418,17 +433,15 @@ def format_seconds(seconds):
 
 def parse_correction_line(line):
     """
-    Acepta:
+    Formatos aceptados:
 
-    1. Texto
-    1 Texto
-    1. [0.7-0.12] Texto
-    1. [1.2-1.15] Texto
-    1|Texto
+    1. Texto corregido
 
-    Devuelve:
+    2. Otro texto
 
-    index, start, end, text
+    3. [0.00-0.7] Texto nuevo
+
+    4. [1.2-1.15] Texto nuevo
     """
 
     line = line.strip()
@@ -480,6 +493,21 @@ def apply_corrections(
     segments,
     correction_text,
 ):
+    """
+    Aplica correcciones y permite añadir
+    nuevos subtítulos.
+
+    Ejemplo:
+
+    Si existen 2 subtítulos:
+
+    1. Texto corregido
+    2. Otro texto corregido
+    3. [0.00-0.7] Texto nuevo
+
+    El número 3 crea un nuevo segmento.
+    """
+
     lines = [
         line.strip()
         for line in correction_text.splitlines()
@@ -497,6 +525,7 @@ def apply_corrections(
     changed = False
 
     for line in lines:
+
         parsed = parse_correction_line(
             line
         )
@@ -511,12 +540,72 @@ def apply_corrections(
             new_text,
         ) = parsed
 
-        if not 1 <= index <= len(updated):
+        # -------------------------------------------------
+        # MODIFICAR UN SUBTÍTULO EXISTENTE
+        # -------------------------------------------------
+
+        if index <= len(updated):
+
+            segment = updated[index - 1]
+
+            if new_start is not None:
+
+                try:
+                    start_value = parse_custom_time(
+                        new_start
+                    )
+
+                    end_value = parse_custom_time(
+                        new_end
+                    )
+
+                except ValueError as error:
+
+                    print(
+                        f"Tiempo no válido en "
+                        f"'{line}': {error}"
+                    )
+
+                    continue
+
+                if end_value <= start_value:
+
+                    print(
+                        f"El final debe ser mayor "
+                        f"que el inicio: {line}"
+                    )
+
+                    continue
+
+                segment["start"] = format_seconds(
+                    start_value
+                )
+
+                segment["end"] = format_seconds(
+                    end_value
+                )
+
+            segment["text"] = new_text
+
+            changed = True
+
             continue
 
-        segment = updated[index - 1]
+        # -------------------------------------------------
+        # AÑADIR UN NUEVO SUBTÍTULO
+        # -------------------------------------------------
 
-        if new_start is not None:
+        if index == len(updated) + 1:
+
+            if new_start is None or new_end is None:
+
+                print(
+                    f"No se puede añadir el "
+                    f"subtítulo {index} sin tiempos."
+                )
+
+                continue
+
             try:
                 start_value = parse_custom_time(
                     new_start
@@ -527,30 +616,51 @@ def apply_corrections(
                 )
 
             except ValueError as error:
+
                 print(
-                    f"Tiempo no válido en línea "
+                    f"Tiempo no válido en "
                     f"'{line}': {error}"
                 )
+
                 continue
 
             if end_value <= start_value:
+
                 print(
                     f"El final debe ser mayor "
                     f"que el inicio: {line}"
                 )
+
                 continue
 
-            segment["start"] = format_seconds(
-                start_value
+            updated.append({
+                "start": format_seconds(
+                    start_value
+                ),
+                "end": format_seconds(
+                    end_value
+                ),
+                "text": new_text,
+            })
+
+            changed = True
+
+            print(
+                f"Nuevo subtítulo añadido: "
+                f"{index}. "
+                f"{new_start}-{new_end} "
+                f"{new_text}"
             )
 
-            segment["end"] = format_seconds(
-                end_value
-            )
+            continue
 
-        segment["text"] = new_text
+        # -------------------------------------------------
+        # NÚMERO INCORRECTO
+        # -------------------------------------------------
 
-        changed = True
+        print(
+            f"No se puede procesar la línea: {line}"
+        )
 
     return updated, changed
 
@@ -564,6 +674,7 @@ def update_review_state(
         "r",
         encoding="utf-8",
     ) as file:
+
         state = json.load(file)
 
     now = datetime.now(
@@ -571,15 +682,18 @@ def update_review_state(
     ).isoformat()
 
     state["status"] = status
+
     state["updated_at"] = now
 
     if status == "revision_requested":
+
         state["revision_count"] = state.get(
             "revision_count",
             0,
         ) + 1
 
         if correction:
+
             state.setdefault(
                 "corrections",
                 [],
@@ -592,6 +706,7 @@ def update_review_state(
         "w",
         encoding="utf-8",
     ) as file:
+
         json.dump(
             state,
             file,
@@ -652,6 +767,7 @@ def run_review(
         "r",
         encoding="utf-8",
     ) as file:
+
         metadata = json.load(file)
 
     segments = read_subtitles(
@@ -686,12 +802,14 @@ def run_review(
     waiting_for_correction = False
 
     while time.time() < deadline:
+
         updates = get_updates(
             token,
             offset,
         )
 
         for update in updates:
+
             offset = (
                 update["update_id"]
                 + 1
@@ -702,6 +820,7 @@ def run_review(
             )
 
             if callback:
+
                 message = (
                     callback.get("message")
                     or {}
@@ -727,6 +846,7 @@ def run_review(
                 )
 
                 if data == "approve":
+
                     answer_callback(
                         token,
                         callback["id"],
@@ -748,6 +868,7 @@ def run_review(
                     return "approved"
 
                 if data == "reject":
+
                     answer_callback(
                         token,
                         callback["id"],
@@ -769,6 +890,7 @@ def run_review(
                     return "rejected"
 
                 if data == "revise":
+
                     answer_callback(
                         token,
                         callback["id"],
@@ -789,6 +911,7 @@ def run_review(
                     )
 
                     waiting_for_correction = True
+
                     continue
 
             if not waiting_for_correction:
@@ -830,16 +953,18 @@ def run_review(
             )
 
             if not changed:
+
                 send_message(
                     token,
                     chat_id,
                     "❌ No he podido interpretar "
                     "la corrección.\n\n"
-                    "Ejemplo:\n"
-                    "1. ¿Pero qué acaba de pasar?\n\n"
-                    "Para añadir texto con tiempos:\n"
-                    "2. [0.7-0.12] ¡Madre mía!",
+                    "Para corregir:\n"
+                    "1. Texto corregido\n\n"
+                    "Para añadir texto nuevo:\n"
+                    "3. [0.00-0.7] Texto nuevo",
                 )
+
                 continue
 
             segments = updated_segments
@@ -895,7 +1020,9 @@ def run_review(
 
 
 if __name__ == "__main__":
+
     if len(sys.argv) != 7:
+
         print(
             "Uso: python src/telegram_review.py "
             "<video.mp4> "
@@ -905,6 +1032,7 @@ if __name__ == "__main__":
             "<tiktok_clip.mp4> "
             "<timeout_seconds>"
         )
+
         sys.exit(1)
 
     token = os.environ.get(
@@ -916,11 +1044,13 @@ if __name__ == "__main__":
     )
 
     if not token:
+
         raise RuntimeError(
             "Falta TELEGRAM_BOT_TOKEN."
         )
 
     if not chat_id:
+
         raise RuntimeError(
             "Falta TELEGRAM_CHAT_ID."
         )
@@ -941,6 +1071,7 @@ if __name__ == "__main__":
         "w",
         encoding="utf-8",
     ) as file:
+
         file.write(result)
 
     print(
