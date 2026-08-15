@@ -34,14 +34,20 @@ def api_call(token: str, method: str, data=None, files=None):
             timeout=60,
         )
 
-    response.raise_for_status()
+    if not response.ok:
+        print("Respuesta de Telegram:")
+        print(response.text)
+        raise TelegramError(
+            f"Telegram API HTTP error in {method}: "
+            f"{response.status_code} - {response.text}"
+        )
+    
     payload = response.json()
-
+    
     if not payload.get("ok"):
         raise TelegramError(
             f"Telegram API error in {method}: {payload}"
         )
-
     return payload["result"]
 
 
