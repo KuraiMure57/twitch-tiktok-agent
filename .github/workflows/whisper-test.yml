@@ -20,6 +20,10 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Transcribe video
+        run: |
+          python src/transcribe.py src/tiktok_test.mp4
+
       - name: Show Whisper output
         run: |
           cat output.txt
@@ -108,7 +112,7 @@ jobs:
         run: |
           python src/clip_extractor.py \
             src/tiktok_test.mp4 \
-            ai_response.json \
+            scored_response.json \
             clip.mp4
 
       - name: Verify clip
