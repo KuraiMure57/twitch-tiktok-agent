@@ -1,4 +1,3 @@
-```python
 import json
 import sys
 from datetime import datetime, timezone
@@ -149,4 +148,3 @@ if __name__ == "__main__":
     else:
         print(f"Acción desconocida: {action}")
         sys.exit(1)
-```
