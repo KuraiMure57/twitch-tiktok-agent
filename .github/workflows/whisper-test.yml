@@ -130,3 +130,25 @@ jobs:
           name: generated-clip
           path: clip.mp4
           if-no-files-found: error
+
+      - name: Burn subtitles into clip
+        run: |
+          python src/subtitle_burner.py \
+            clip.mp4 \
+            final_subtitles.txt \
+            final_clip.mp4
+
+      - name: Verify final clip
+        run: |
+          ls -lh final_clip.mp4
+          ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            final_clip.mp4
+
+      - name: Upload final clip
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-tiktok-clip
+          path: final_clip.mp4
+          if-no-files-found: error
