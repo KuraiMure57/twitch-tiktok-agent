@@ -328,15 +328,19 @@ def format_subtitles_for_telegram(
         "",
         "➕ PARA AÑADIR TEXTO CON TIEMPOS:",
         "",
-        "3. [0.7-1.2] Texto nuevo",
+        "3. [0.7-0.12] Texto nuevo",
         "",
-        "⏱️ Formato de tiempos:",
+        "⏱️ FORMATO DE TIEMPOS:",
+        "Antes del punto = minutos",
+        "Después del punto = segundos",
+        "",
         "0.7 = 7 segundos",
-        "1.2 = 12 segundos",
+        "0.12 = 12 segundos",
+        "1.2 = 1 minuto y 2 segundos",
         "7 = 7 minutos",
-        "7.5 = 7 minutos y 50 segundos",
+        "7.50 = 7 minutos y 50 segundos",
         "",
-        "Si no pones tiempos, se mantienen "
+        "Sin [inicio-fin] se mantienen "
         "los tiempos actuales.",
     ])
 
@@ -345,16 +349,17 @@ def format_subtitles_for_telegram(
 
 def parse_custom_time(value):
     """
-    Convierte nuestro formato personalizado a segundos.
+    Convierte el formato minutos.segundos a segundos.
 
     Ejemplos:
 
     0.7  -> 7 segundos
-    1.2  -> 12 segundos
-    1.5  -> 15 segundos
+    0.12 -> 12 segundos
+    1.2  -> 1 minuto y 2 segundos
+    1.15 -> 1 minuto y 15 segundos
     7    -> 7 minutos
-    7.5  -> 7 minutos y 50 segundos
-    7.25 -> 7 minutos y 25 segundos
+    7.5  -> 7 minutos y 5 segundos
+    7.50 -> 7 minutos y 50 segundos
     """
 
     value = value.strip()
@@ -384,19 +389,14 @@ def parse_custom_time(value):
             minutes_text
         )
 
-        if len(seconds_text) == 1:
-            seconds = int(
-                seconds_text + "0"
-            )
-        else:
-            seconds = int(
-                seconds_text
-            )
+        seconds = int(
+            seconds_text
+        )
 
         if seconds >= 60:
             raise ValueError(
-                f"Los segundos deben ser "
-                f"menores de 60: {value}"
+                f"Los segundos deben estar "
+                f"entre 0 y 59: {value}"
             )
 
         return (
@@ -413,11 +413,6 @@ def parse_custom_time(value):
 
 
 def format_seconds(seconds):
-    """
-    Convierte segundos reales a un formato
-    compatible con el archivo de subtítulos.
-    """
-
     return f"{float(seconds):.3f}"
 
 
@@ -427,7 +422,8 @@ def parse_correction_line(line):
 
     1. Texto
     1 Texto
-    1. [0.7-1.2] Texto
+    1. [0.7-0.12] Texto
+    1. [1.2-1.15] Texto
     1|Texto
 
     Devuelve:
@@ -530,10 +526,18 @@ def apply_corrections(
                     new_end
                 )
 
-            except ValueError:
+            except ValueError as error:
+                print(
+                    f"Tiempo no válido en línea "
+                    f"'{line}': {error}"
+                )
                 continue
 
             if end_value <= start_value:
+                print(
+                    f"El final debe ser mayor "
+                    f"que el inicio: {line}"
+                )
                 continue
 
             segment["start"] = format_seconds(
@@ -834,7 +838,7 @@ def run_review(
                     "Ejemplo:\n"
                     "1. ¿Pero qué acaba de pasar?\n\n"
                     "Para añadir texto con tiempos:\n"
-                    "2. [0.7-1.2] ¡Madre mía!",
+                    "2. [0.7-0.12] ¡Madre mía!",
                 )
                 continue
 
