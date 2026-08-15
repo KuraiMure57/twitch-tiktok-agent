@@ -1,126 +1,76 @@
-```yaml
-name: Whisper Test
+import json
+import sys
+from pathlib import Path
 
-on:
-  workflow_dispatch:
+import whisper
 
-jobs:
-  whisper-test:
-    runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+def transcribe_video(video_path: str, output_path: str) -> None:
+    video = Path(video_path)
+    output = Path(output_path)
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    if not video.exists():
+        raise FileNotFoundError(f"No existe el vídeo: {video}")
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+    print("Cargando modelo Whisper...")
+    model = whisper.load_model("small")
 
-      - name: Run Whisper
-        run: |
-          python src/transcribe.py src/tiktok_test.mp4 output.txt
+    print("Transcribiendo vídeo...")
 
-      - name: Show Whisper output
-        run: |
-          cat output.txt
+    result = model.transcribe(
+        str(video),
+        language="es",
+        fp16=False,
+        word_timestamps=True,
+        condition_on_previous_text=False
+    )
 
-      - name: Convert Whisper output to JSON
-        run: |
-          python src/whisper_json_converter.py output.txt output.json
+    words = []
 
-      - name: Show Whisper JSON
-        run: |
-          cat output.json
+    for segment in result["segments"]:
+        for word in segment.get("words", []):
+            text = word["word"].strip()
 
-      - name: Format subtitles
-        run: |
-          python src/subtitle_formatter.py output.json formatted_subtitles.json
+            if text:
+                words.append({
+                    "start": round(word["start"], 3),
+                    "end": round(word["end"], 3),
+                    "text": text
+                })
 
-      - name: Show formatted subtitles
-        run: |
-          cat formatted_subtitles.json
+    transcription = {
+        "language": "es",
+        "words": words
+    }
 
-      - name: Correct subtitles
-        run: |
-          python src/subtitle_corrector.py formatted_subtitles.json corrected_subtitles.json
+    json_output = output.with_suffix(".json")
 
-      - name: Show corrected subtitles
-        run: |
-          cat corrected_subtitles.json
+    with json_output.open("w", encoding="utf-8") as file:
+        json.dump(
+            transcription,
+            file,
+            ensure_ascii=False,
+            indent=2
+        )
 
-      - name: Build AI input
-        run: |
-          python -c "
-          import json
+    with output.open("w", encoding="utf-8") as file:
+        for word in words:
+            file.write(
+                f"{word['start']:.3f}|"
+                f"{word['end']:.3f}|"
+                f"{word['text']}\n"
+            )
 
-          with open('corrected_subtitles.json', 'r', encoding='utf-8') as f:
-              subtitles = json.load(f)
+    print(f"Transcripción guardada en {output}")
+    print(f"JSON guardado en {json_output}")
 
-          ai_input = {
-              'language': subtitles.get('language', 'es'),
-              'segments': subtitles.get('segments', []),
-              'instructions': {
-                  'correct_transcription': True,
-                  'preserve_timestamps': True,
-                  'return_only_valid_json': True
-              }
-          }
 
-          with open('ai_input.json', 'w', encoding='utf-8') as f:
-              json.dump(ai_input, f, ensure_ascii=False, indent=2)
-          "
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print(
+            "Uso: python src/transcribe.py "
+            "<video.mp4> <output.txt>"
+        )
+        sys.exit(1)
 
-      - name: Analyze video with Gemini
-        run: |
-          python src/gemini_analyzer.py src/tiktok_test.mp4 ai_input.json ai_response.json
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-
-      - name: Show AI response
-        run: |
-          cat ai_response.json
-
-      - name: Validate AI response
-        run: |
-          python src/ai_response_validator.py ai_response.json
-
-      - name: Show AI input
-        run: |
-          cat ai_input.json
-
-      - name: Calculate score
-        run: |
-          python src/scoring.py ai_response.json scored_response.json
-
-      - name: Show scored response
-        run: |
-          cat scored_response.json
-
-      - name: Build final subtitles
-        run: |
-          python src/ai_response_handler.py ai_response.json final_subtitles.txt
-
-      - name: Show final subtitles
-        run: |
-          cat final_subtitles.txt
-
-      - name: Extract clip
-        run: |
-          python src/clip_extractor.py \
-            src/tiktok_test.mp4 \
-            ai_response.json \
-            clip.mp4
-
-      - name: Verify clip
-        run: |
-          ls -lh clip.mp4
-          ffprobe -v error \
-            -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 \
-            clip.mp4
-```
+    transcribe_video(sys.argv[1], sys.argv[2])
