@@ -150,7 +150,7 @@ jobs:
         run: |
           ffmpeg -y \
             -i final_clip.mp4 \
-            -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
+            -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" \
             -c:v libx264 \
             -preset medium \
             -crf 20 \
