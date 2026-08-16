@@ -1,250 +1,189 @@
-name: Whisper Test
+name: Twitch Test
 
 on:
   workflow_dispatch:
 
-concurrency:
-  group: twitch-tiktok-telegram-review
-  cancel-in-progress: false
-
 jobs:
-  whisper-test:
+  twitch-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
-      - name: Set up Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Instalar dependencias
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
           pip install requests
 
-      - name: Run Whisper
+      - name: Comprobar cuenta de Twitch
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ secrets.TWITCH_ACCESS_TOKEN }}
         run: |
-          python src/transcribe.py src/tiktok_test.mp4 output.txt
+          python - <<'PY'
+          import os
+          import sys
+          import requests
 
-      - name: Show Whisper output
-        run: |
-          cat output.txt
+          client_id = os.environ["TWITCH_CLIENT_ID"]
+          access_token = os.environ["TWITCH_ACCESS_TOKEN"]
 
-      - name: Show Whisper JSON
-        run: |
-          cat output.json
+          response = requests.get(
+              "https://api.twitch.tv/helix/users",
+              headers={
+                  "Client-ID": client_id,
+                  "Authorization": f"Bearer {access_token}",
+              },
+              timeout=30,
+          )
 
-      - name: Format subtitles
-        run: |
-          python src/subtitle_formatter.py output.json formatted_subtitles.json
+          print(
+              f"Twitch /helix/users: HTTP {response.status_code}"
+          )
 
-      - name: Show formatted subtitles
-        run: |
-          cat formatted_subtitles.json
+          if not response.ok:
+              print(response.text)
+              sys.exit(1)
 
-      - name: Correct subtitles
-        run: |
-          python src/subtitle_corrector.py formatted_subtitles.json corrected_subtitles.json
+          data = response.json()
 
-      - name: Show corrected subtitles
-        run: |
-          cat corrected_subtitles.json
+          users = data.get("data", [])
 
-      - name: Build AI input
+          if not users:
+              print("ERROR: Twitch no devolvió ningún usuario.")
+              sys.exit(1)
+
+          user = users[0]
+
+          print(
+              f"Usuario Twitch: @{user.get('login')}"
+          )
+
+          print(
+              f"Display name: {user.get('display_name')}"
+          )
+
+          print("Autenticación Twitch correcta.")
+
+          with open(
+              "twitch_user.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              import json
+
+              json.dump(
+                  {
+                      "id": user.get("id"),
+                      "login": user.get("login"),
+                      "display_name": user.get("display_name"),
+                  },
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          PY
+
+      - name: Buscar clips recientes
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ secrets.TWITCH_ACCESS_TOKEN }}
         run: |
-          python -c "
+          python - <<'PY'
           import json
+          import os
+          import sys
+          import requests
 
-          with open('corrected_subtitles.json', 'r', encoding='utf-8') as f:
-              subtitles = json.load(f)
+          client_id = os.environ["TWITCH_CLIENT_ID"]
+          access_token = os.environ["TWITCH_ACCESS_TOKEN"]
 
-          ai_input = {
-              'language': subtitles.get('language', 'es'),
-              'segments': subtitles.get('segments', []),
-              'instructions': {
-                  'correct_transcription': True,
-                  'preserve_timestamps': True,
-                  'return_only_valid_json': True
-              }
-          }
+          with open(
+              "twitch_user.json",
+              "r",
+              encoding="utf-8",
+          ) as file:
+              user = json.load(file)
 
-          with open('ai_input.json', 'w', encoding='utf-8') as f:
-              json.dump(ai_input, f, ensure_ascii=False, indent=2)
-          "
+          broadcaster_id = user["id"]
 
-      - name: Analyze video with Gemini
+          response = requests.get(
+              "https://api.twitch.tv/helix/clips",
+              headers={
+                  "Client-ID": client_id,
+                  "Authorization": f"Bearer {access_token}",
+              },
+              params={
+                  "broadcaster_id": broadcaster_id,
+                  "first": 10,
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /helix/clips: HTTP {response.status_code}"
+          )
+
+          if not response.ok:
+              print(response.text)
+              sys.exit(1)
+
+          data = response.json()
+
+          clips = data.get("data", [])
+
+          print(
+              f"Clips encontrados: {len(clips)}"
+          )
+
+          for index, clip in enumerate(clips, start=1):
+              print("")
+              print(
+                  f"--- Clip {index} ---"
+              )
+              print(
+                  f"ID: {clip.get('id')}"
+              )
+              print(
+                  f"Título: {clip.get('title')}"
+              )
+              print(
+                  f"URL: {clip.get('url')}"
+              )
+              print(
+                  f"Created: {clip.get('created_at')}"
+              )
+              print(
+                  f"Creator: {clip.get('creator_name')}"
+              )
+              print(
+                  f"Video ID: {clip.get('video_id')}"
+              )
+
+          with open(
+              "twitch_clips.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(
+                  clips,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+          print("")
+          print("Consulta de clips completada correctamente.")
+          PY
+
+      - name: Mostrar resultado
         run: |
-          python src/gemini_analyzer.py src/tiktok_test.mp4 ai_input.json ai_response.json
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          echo "--- Usuario ---"
+          cat twitch_user.json
 
-      - name: Show AI response
-        run: |
-          cat ai_response.json
-
-      - name: Validate AI response
-        run: |
-          python src/ai_response_validator.py ai_response.json
-
-      - name: Show AI input
-        run: |
-          cat ai_input.json
-
-      - name: Calculate score
-        run: |
-          python src/scoring.py ai_response.json scored_response.json
-
-      - name: Show scored response
-        run: |
-          cat scored_response.json
-
-      - name: Generate clip metadata
-        run: |
-          python src/metadata_generator.py \
-            scored_response.json \
-            metadata.json
-
-      - name: Show clip metadata
-        run: |
-          cat metadata.json
-
-      - name: Build final subtitles
-        run: |
-          python src/ai_response_handler.py \
-            ai_response.json \
-            final_subtitles.txt
-
-      - name: Show final subtitles
-        run: |
-          cat final_subtitles.txt
-
-      - name: Extract clip
-        run: |
-          python src/clip_extractor.py \
-            src/tiktok_test.mp4 \
-            scored_response.json \
-            clip.mp4
-
-      - name: Verify clip
-        run: |
-          ls -lh clip.mp4
-          ffprobe -v error \
-            -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 \
-            clip.mp4
-
-      - name: Create vertical TikTok video
-        run: |
-          python src/video_editor.py \
-            clip.mp4 \
-            tiktok_clip.mp4
-
-      - name: Verify vertical TikTok video
-        run: |
-          ls -lh tiktok_clip.mp4
-          ffprobe -v error \
-            -select_streams v:0 \
-            -show_entries stream=width,height \
-            -of default=noprint_wrappers=1 \
-            tiktok_clip.mp4
-
-      - name: Burn subtitles into TikTok video
-        run: |
-          python src/subtitle_burner.py \
-            tiktok_clip.mp4 \
-            final_subtitles.txt \
-            final_tiktok.mp4
-
-      - name: Verify final TikTok video
-        run: |
-          ls -lh final_tiktok.mp4
-          ffprobe -v error \
-            -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 \
-            final_tiktok.mp4
-
-      - name: Create review state
-        run: |
-          python src/review_manager.py \
-            create \
-            metadata.json \
-            review_state.json
-
-      - name: Send clip to Telegram for review
-        id: telegram_review
-        timeout-minutes: 125
-        run: |
-          python src/telegram_review.py \
-            final_tiktok.mp4 \
-            metadata.json \
-            review_state.json \
-            final_subtitles.txt \
-            tiktok_clip.mp4 \
-            7200
-
-          echo "status=$(cat review_result.txt)" >> "$GITHUB_OUTPUT"
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-
-      - name: Show review state
-        run: |
-          cat review_state.json
-
-      - name: Prepare publication package
-        if: steps.telegram_review.outputs.status == 'approved'
-        run: |
-          mkdir -p publication_package
-
-          cp final_tiktok.mp4 publication_package/
-          cp metadata.json publication_package/
-          cp review_state.json publication_package/
-
-      - name: Show publication package
-        if: steps.telegram_review.outputs.status == 'approved'
-        run: |
-          ls -lh publication_package/
-
-          echo "--- metadata.json ---"
-          cat publication_package/metadata.json
-
-          echo "--- review_state.json ---"
-          cat publication_package/review_state.json
-
-      - name: Upload publication package
-        if: steps.telegram_review.outputs.status == 'approved'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tiktok-publication-package
-          path: publication_package/
-          if-no-files-found: error
-
-      - name: Publish approved clip to TikTok
-        if: steps.telegram_review.outputs.status == 'approved'
-        run: |
-          python src/tiktok_uploader.py \
-            final_tiktok.mp4 \
-            metadata.json
-        env:
-          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
-
-      - name: Show TikTok publication result
-        if: steps.telegram_review.outputs.status == 'approved'
-        run: |
-          cat tiktok_result.json
-
-      - name: Report rejected clip
-        if: steps.telegram_review.outputs.status == 'rejected'
-        run: |
-          echo "El clip ha sido descartado desde Telegram."
+          echo ""
+          echo "--- Clips ---"
+          cat twitch_clips.json
