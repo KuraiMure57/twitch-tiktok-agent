@@ -32,11 +32,12 @@ jobs:
           pip install -r requirements.txt
           pip install requests
 
-      - name: Obtain Twitch App Access Token
+      - name: Refresh Twitch User Access Token
         id: twitch-token
         env:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          TWITCH_REFRESH_TOKEN: ${{ secrets.TWITCH_REFRESH_TOKEN }}
         run: |
           python - <<'PY'
           import json
@@ -47,6 +48,7 @@ jobs:
 
           client_id = os.environ.get("TWITCH_CLIENT_ID")
           client_secret = os.environ.get("TWITCH_CLIENT_SECRET")
+          refresh_token = os.environ.get("TWITCH_REFRESH_TOKEN")
 
           if not client_id:
               print("ERROR: Falta el secret TWITCH_CLIENT_ID.")
@@ -54,6 +56,10 @@ jobs:
 
           if not client_secret:
               print("ERROR: Falta el secret TWITCH_CLIENT_SECRET.")
+              sys.exit(1)
+
+          if not refresh_token:
+              print("ERROR: Falta el secret TWITCH_REFRESH_TOKEN.")
               sys.exit(1)
 
           response = requests.post(
@@ -64,7 +70,8 @@ jobs:
               data={
                   "client_id": client_id,
                   "client_secret": client_secret,
-                  "grant_type": "client_credentials",
+                  "grant_type": "refresh_token",
+                  "refresh_token": refresh_token,
               },
               timeout=30,
           )
@@ -77,9 +84,7 @@ jobs:
               sys.exit(1)
 
           if response.status_code != 200:
-              print(
-                  "ERROR obteniendo App Access Token de Twitch:"
-              )
+              print("ERROR renovando User Access Token de Twitch:")
               print(
                   json.dumps(
                       data,
@@ -96,6 +101,9 @@ jobs:
               sys.exit(1)
 
           expires_in = data.get("expires_in")
+          scopes = data.get("scope", [])
+
+          new_refresh_token = data.get("refresh_token")
 
           with open(
               os.environ["GITHUB_OUTPUT"],
@@ -106,14 +114,33 @@ jobs:
                   f"access_token={access_token}\n"
               )
 
-          print("Twitch App Access Token obtenido correctamente.")
-          print(
-              f"Duración del token: {expires_in} segundos."
-          )
-          print("El token no se mostrará en los logs.")
+              if new_refresh_token:
+                  output.write(
+                      f"refresh_token={new_refresh_token}\n"
+                  )
+
+          print("Twitch User Access Token renovado correctamente.")
+          print(f"Duración del token: {expires_in} segundos.")
+          print(f"Scopes concedidos: {scopes}")
+
+          if new_refresh_token:
+              print(
+                  "Twitch ha proporcionado un nuevo Refresh Token."
+              )
+              print(
+                  "IMPORTANTE: si Twitch rota el Refresh Token, "
+                  "habrá que actualizar el secret "
+                  "TWITCH_REFRESH_TOKEN."
+              )
+          else:
+              print(
+                  "Twitch no ha proporcionado un nuevo Refresh Token."
+              )
+
+          print("Los tokens no se mostrarán en los logs.")
           PY
 
-      - name: Validate Twitch App Access Token
+      - name: Validate Twitch User Access Token
         env:
           TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
         run: |
@@ -127,7 +154,7 @@ jobs:
           access_token = os.environ.get("TWITCH_ACCESS_TOKEN")
 
           if not access_token:
-              print("ERROR: No se obtuvo Twitch App Access Token.")
+              print("ERROR: No se obtuvo Twitch User Access Token.")
               sys.exit(1)
 
           response = requests.get(
@@ -159,10 +186,11 @@ jobs:
               )
               sys.exit(1)
 
-          print("Twitch App Access Token válido.")
-          print(
-              f"Client ID: {data.get('client_id')}"
-          )
+          print("Twitch User Access Token válido.")
+          print(f"Client ID: {data.get('client_id')}")
+          print(f"Login: {data.get('login')}")
+          print(f"User ID: {data.get('user_id')}")
+          print(f"Scopes: {data.get('scopes')}")
           print(
               f"Expira en: {data.get('expires_in')} segundos"
           )
@@ -227,7 +255,6 @@ jobs:
               sys.exit(1)
 
           user = users[0]
-
           user_id = user.get("id")
 
           if not user_id:
@@ -246,15 +273,11 @@ jobs:
               )
 
           print("Cuenta Twitch encontrada.")
-          print(
-              f"Usuario: @{user.get('login')}"
-          )
+          print(f"Usuario: @{user.get('login')}")
           print(
               f"Nombre mostrado: {user.get('display_name')}"
           )
-          print(
-              f"Broadcaster ID: {user_id}"
-          )
+          print(f"Broadcaster ID: {user_id}")
           PY
 
       - name: Get latest Twitch clips
@@ -267,6 +290,7 @@ jobs:
           import json
           import os
           import sys
+          from datetime import datetime, timezone
 
           import requests
 
@@ -278,7 +302,7 @@ jobs:
               "https://api.twitch.tv/helix/clips",
               params={
                   "broadcaster_id": broadcaster_id,
-                  "first": 10,
+                  "first": 20,
               },
               headers={
                   "Authorization": f"Bearer {access_token}",
@@ -318,54 +342,49 @@ jobs:
 
           if not clips:
               print(
-                  "No se han encontrado clips "
+                  "ERROR: No se han encontrado clips "
                   "para @kuraimure57."
               )
-          else:
+              sys.exit(1)
+
+          print(
+              f"Total de clips recibidos: "
+              f"{len(clips)}"
+          )
+          print("")
+
+          for index, clip in enumerate(
+              clips,
+              start=1,
+          ):
               print(
-                  f"Total de clips recibidos: "
-                  f"{len(clips)}"
+                  f"--- Clip {index} ---"
+              )
+              print(
+                  f"ID: {clip.get('id')}"
+              )
+              print(
+                  f"Título: {clip.get('title')}"
+              )
+              print(
+                  f"Creador: {clip.get('creator_name')}"
+              )
+              print(
+                  f"Juego: {clip.get('game_name')}"
+              )
+              print(
+                  f"Fecha: {clip.get('created_at')}"
+              )
+              print(
+                  f"Duración: {clip.get('duration')} segundos"
+              )
+              print(
+                  f"Vistas: {clip.get('view_count')}"
+              )
+              print(
+                  f"URL: {clip.get('url')}"
               )
               print("")
-
-              for index, clip in enumerate(
-                  clips,
-                  start=1,
-              ):
-                  print(
-                      f"--- Clip {index} ---"
-                  )
-                  print(
-                      f"ID: {clip.get('id')}"
-                  )
-                  print(
-                      f"Título: {clip.get('title')}"
-                  )
-                  print(
-                      f"Creador: "
-                      f"{clip.get('creator_name')}"
-                  )
-                  print(
-                      f"Juego: "
-                      f"{clip.get('game_name')}"
-                  )
-                  print(
-                      f"Fecha: "
-                      f"{clip.get('created_at')}"
-                  )
-                  print(
-                      f"Duración: "
-                      f"{clip.get('duration')} segundos"
-                  )
-                  print(
-                      f"Vistas: "
-                      f"{clip.get('view_count')}"
-                  )
-                  print(
-                      f"URL: "
-                      f"{clip.get('url')}"
-                  )
-                  print("")
 
           with open(
               "twitch_clips.json",
@@ -379,11 +398,137 @@ jobs:
                   indent=2,
               )
 
+          latest_clip = max(
+              clips,
+              key=lambda clip: clip.get(
+                  "created_at",
+                  "",
+              ),
+          )
+
+          clip_id = latest_clip.get("id")
+
+          if not clip_id:
+              print(
+                  "ERROR: El clip seleccionado "
+                  "no tiene ID."
+              )
+              sys.exit(1)
+
+          print("")
+          print("==============================")
+          print("CLIP SELECCIONADO")
+          print("==============================")
+          print(
+              f"ID: {clip_id}"
+          )
+          print(
+              f"Título: {latest_clip.get('title')}"
+          )
+          print(
+              f"Fecha: {latest_clip.get('created_at')}"
+          )
+          print(
+              f"URL: {latest_clip.get('url')}"
+          )
+          print(
+              f"Duración: {latest_clip.get('duration')} segundos"
+          )
+          print("==============================")
+          print("")
+
+          with open(
+              "selected_twitch_clip.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(
+                  latest_clip,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  f"clip_id={clip_id}\n"
+              )
+
+      - name: Get Twitch clip download URL
+        id: twitch-download
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+          TWITCH_CLIP_ID: ${{ steps.twitch-clips.outputs.clip_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          import requests
+
+          client_id = os.environ["TWITCH_CLIENT_ID"]
+          access_token = os.environ["TWITCH_ACCESS_TOKEN"]
+          clip_id = os.environ["TWITCH_CLIP_ID"]
+
+          response = requests.get(
+              "https://api.twitch.tv/helix/clips/downloads",
+              params={
+                  "editor_id": clip_id,
+              },
+              headers={
+                  "Authorization": f"Bearer {access_token}",
+                  "Client-Id": client_id,
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /helix/clips/downloads: HTTP "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          print(
+              "Respuesta de descarga recibida."
+          )
+
+          print(
+              json.dumps(
+                  data,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          )
+          PY
+
       - name: Upload Twitch clips information
         uses: actions/upload-artifact@v4
         with:
           name: twitch-clips-information
-          path: twitch_clips.json
+          path: |
+            twitch_clips.json
+            selected_twitch_clip.json
           if-no-files-found: error
 
       - name: Run Whisper
