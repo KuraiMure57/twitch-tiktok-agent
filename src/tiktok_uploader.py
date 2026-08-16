@@ -8,10 +8,102 @@ import requests
 
 
 API_BASE = "https://open.tiktokapis.com"
+OAUTH_TOKEN_URL = f"{API_BASE}/v2/oauth/token/"
 
 
 class TikTokError(RuntimeError):
     pass
+
+
+def get_access_token_from_refresh_token():
+    client_key = os.environ.get(
+        "TIKTOK_CLIENT_KEY"
+    )
+    client_secret = os.environ.get(
+        "TIKTOK_CLIENT_SECRET"
+    )
+    refresh_token = os.environ.get(
+        "TIKTOK_REFRESH_TOKEN"
+    )
+
+    if not client_key:
+        raise TikTokError(
+            "Falta el secret TIKTOK_CLIENT_KEY."
+        )
+
+    if not client_secret:
+        raise TikTokError(
+            "Falta el secret TIKTOK_CLIENT_SECRET."
+        )
+
+    if not refresh_token:
+        raise TikTokError(
+            "Falta el secret TIKTOK_REFRESH_TOKEN."
+        )
+
+    print(
+        "Solicitando nuevo access token de TikTok..."
+    )
+
+    response = requests.post(
+        OAUTH_TOKEN_URL,
+        headers={
+            "Content-Type": (
+                "application/x-www-form-urlencoded"
+            ),
+        },
+        data={
+            "client_key": client_key,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+        timeout=60,
+    )
+
+    print(
+        "TikTok OAuth refresh: "
+        f"HTTP {response.status_code}"
+    )
+
+    if not response.ok:
+        raise TikTokError(
+            "TikTok OAuth refresh falló: "
+            f"HTTP {response.status_code}: "
+            f"{response.text}"
+        )
+
+    data = response.json()
+
+    if data.get("error"):
+        raise TikTokError(
+            "TikTok OAuth devolvió un error: "
+            f"{json.dumps(data, ensure_ascii=False)}"
+        )
+
+    access_token = data.get(
+        "access_token"
+    )
+
+    if not access_token:
+        raise TikTokError(
+            "TikTok OAuth no devolvió access_token."
+        )
+
+    if data.get("refresh_token"):
+        print(
+            "TikTok ha devuelto un nuevo "
+            "refresh token. Será necesario "
+            "actualizar el GitHub Secret "
+            "TIKTOK_REFRESH_TOKEN posteriormente."
+        )
+
+    print(
+        "Access token de TikTok obtenido "
+        "correctamente."
+    )
+
+    return access_token
 
 
 def api_post(
@@ -281,13 +373,7 @@ def initialize_direct_post(
         video_path.stat().st_size
     )
 
-    # TikTok requiere que el chunk size utilizado
-    # durante la inicialización sea válido.
-    #
-    # Para vídeos pequeños utilizamos el propio tamaño
-    # del vídeo, evitando crear un segundo chunk.
     chunk_size = video_size
-
     total_chunks = 1
 
     payload = {
@@ -529,7 +615,6 @@ def publish(
     )
 
     chunk_size = video_size
-
     total_chunks = 1
 
     print(
@@ -608,15 +693,9 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    access_token = os.environ.get(
-        "TIKTOK_ACCESS_TOKEN"
+    access_token = (
+        get_access_token_from_refresh_token()
     )
-
-    if not access_token:
-        raise RuntimeError(
-            "Falta el secret "
-            "TIKTOK_ACCESS_TOKEN."
-        )
 
     video_path = Path(
         sys.argv[1]
