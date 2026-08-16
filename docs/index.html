@@ -1,29 +1,122 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Twitch TikTok Agent</title>
-</head>
 <body>
     <main>
         <h1>Twitch TikTok Agent</h1>
 
         <p>
-            Personal automation tool for processing gaming clips from Twitch
-            streams and preparing them for publication on TikTok.
+            Herramienta personal de automatización para procesar clips de
+            Twitch y prepararlos para su publicación en TikTok.
         </p>
+
+        <h2>Conectar Twitch</h2>
+
+        <p>
+            Autoriza el acceso a Twitch para permitir que el proyecto
+            consulte y procese clips del canal.
+        </p>
+
+        <button id="twitch-login">
+            Conectar con Twitch
+        </button>
+
+        <div id="twitch-result"></div>
 
         <h2>Legal</h2>
 
         <ul>
             <li>
-                <a href="terms.html">Terms of Service</a>
+                <a href="terms.html">Términos de servicio</a>
             </li>
             <li>
-                <a href="privacy.html">Privacy Policy</a>
+                <a href="privacy.html">Política de privacidad</a>
             </li>
         </ul>
     </main>
+
+    <script>
+        const TWITCH_CLIENT_ID =
+            "slylh559zpez4jpuwke6tturmnwarl";
+
+        const REDIRECT_URI =
+            "https://kuraimure57.github.io/twitch-tiktok-agent/";
+
+        const TWITCH_SCOPES =
+            "channel:manage:clips";
+
+        const loginButton =
+            document.getElementById("twitch-login");
+
+        const result =
+            document.getElementById("twitch-result");
+
+        loginButton.addEventListener("click", () => {
+            const params = new URLSearchParams({
+                client_id: TWITCH_CLIENT_ID,
+                redirect_uri: REDIRECT_URI,
+                response_type: "token",
+                scope: TWITCH_SCOPES
+            });
+
+            window.location.href =
+                "https://id.twitch.tv/oauth2/authorize?" +
+                params.toString();
+        });
+
+        function getAccessTokenFromUrl() {
+            const hash = window.location.hash;
+
+            if (!hash) {
+                return null;
+            }
+
+            const params =
+                new URLSearchParams(
+                    hash.substring(1)
+                );
+
+            return params.get("access_token");
+        }
+
+        const accessToken =
+            getAccessTokenFromUrl();
+
+        if (accessToken) {
+            result.innerHTML = `
+                <h3>Autenticación completada</h3>
+
+                <p>
+                    Twitch ha devuelto correctamente un
+                    User Access Token.
+                </p>
+
+                <p>
+                    Copia este token y guárdalo como
+                    <strong>TWITCH_ACCESS_TOKEN</strong>
+                    en GitHub Secrets.
+                </p>
+
+                <textarea
+                    id="token"
+                    rows="5"
+                    cols="70"
+                    readonly
+                ></textarea>
+
+                <p>
+                    <strong>
+                        No compartas este token públicamente.
+                    </strong>
+                </p>
+            `;
+
+            document.getElementById("token").value =
+                accessToken;
+
+            history.replaceState(
+                null,
+                document.title,
+                REDIRECT_URI
+            );
+        }
+    </script>
 </body>
 </html>
