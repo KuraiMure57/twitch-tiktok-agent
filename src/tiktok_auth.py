@@ -25,15 +25,30 @@ authorization_error = None
 
 
 def generate_code_verifier():
+    """
+    Generate a PKCE code verifier.
+
+    TikTok requires the verifier to be between 43 and 128 characters
+    and use the allowed characters from RFC 7636.
+    """
     return secrets.token_urlsafe(64)
 
 
 def generate_code_challenge(code_verifier):
-    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    """
+    Generate the PKCE S256 code challenge.
+    """
+    digest = hashlib.sha256(
+        code_verifier.encode("ascii")
+    ).digest()
+
+    return base64.urlsafe_b64encode(
+        digest
+    ).rstrip(b"=").decode("ascii")
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         global authorization_code
         global authorization_error
@@ -51,19 +66,26 @@ class CallbackHandler(BaseHTTPRequestHandler):
         if "error" in params:
             authorization_error = params.get(
                 "error_description",
-                params.get("error", ["Unknown TikTok error"]),
+                params.get(
+                    "error",
+                    ["Unknown TikTok error"]
+                ),
             )[0]
 
             self.send_response(400)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header(
+                "Content-Type",
+                "text/html; charset=utf-8"
+            )
             self.end_headers()
 
             html = """
+            <!DOCTYPE html>
             <html>
-                <body>
-                    <h2>TikTok authorization failed.</h2>
-                    <p>You can close this window.</p>
-                </body>
+            <body>
+                <h2>TikTok authorization failed.</h2>
+                <p>You can close this window.</p>
+            </body>
             </html>
             """
 
@@ -71,7 +93,9 @@ class CallbackHandler(BaseHTTPRequestHandler):
             return
 
         if "code" not in params:
-            authorization_error = "TikTok did not return an authorization code."
+            authorization_error = (
+                "TikTok did not return an authorization code."
+            )
 
             self.send_response(400)
             self.end_headers()
@@ -83,15 +107,19 @@ class CallbackHandler(BaseHTTPRequestHandler):
         authorization_code = params["code"][0]
 
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header(
+            "Content-Type",
+            "text/html; charset=utf-8"
+        )
         self.end_headers()
 
         html = """
+        <!DOCTYPE html>
         <html>
-            <body>
-                <h2>TikTok authorization successful.</h2>
-                <p>You can close this browser window and return to the terminal.</p>
-            </body>
+        <body>
+            <h2>TikTok authorization successful.</h2>
+            <p>You can close this window and return to PowerShell.</p>
+        </body>
         </html>
         """
 
@@ -101,7 +129,12 @@ class CallbackHandler(BaseHTTPRequestHandler):
         return
 
 
-def exchange_code_for_tokens(client_key, client_secret, code, code_verifier):
+def exchange_code_for_tokens(
+    client_key,
+    client_secret,
+    code,
+    code_verifier,
+):
     response = requests.post(
         TOKEN_URL,
         headers={
@@ -122,9 +155,10 @@ def exchange_code_for_tokens(client_key, client_secret, code, code_verifier):
     try:
         data = response.json()
     except ValueError:
-        response.raise_for_status()
         raise RuntimeError(
-            f"TikTok returned an invalid response: {response.text}"
+            "TikTok returned an invalid response:\n"
+            f"HTTP {response.status_code}\n"
+            f"{response.text}"
         )
 
     if response.status_code != 200:
@@ -144,6 +178,7 @@ def exchange_code_for_tokens(client_key, client_secret, code, code_verifier):
 
 
 def main():
+
     client_key = os.getenv("TIKTOK_CLIENT_KEY")
     client_secret = os.getenv("TIKTOK_CLIENT_SECRET")
 
@@ -157,9 +192,44 @@ def main():
             "Missing TIKTOK_CLIENT_SECRET environment variable."
         )
 
+    # ------------------------------------------------------------
+    # Generate PKCE values
+    # ------------------------------------------------------------
+
     code_verifier = generate_code_verifier()
-    code_challenge = generate_code_challenge(code_verifier)
+    code_challenge = generate_code_challenge(
+        code_verifier
+    )
+
     state = secrets.token_urlsafe(32)
+
+    print()
+    print("=" * 70)
+    print("TikTok OAuth authorization")
+    print("=" * 70)
+    print()
+
+    print(
+        f"Code verifier length: {len(code_verifier)}"
+    )
+
+    print(
+        f"Code challenge length: {len(code_challenge)}"
+    )
+
+    print(
+        f"Redirect URI: {REDIRECT_URI}"
+    )
+
+    print(
+        f"Scopes: {SCOPES}"
+    )
+
+    print()
+
+    # ------------------------------------------------------------
+    # Build authorization URL
+    # ------------------------------------------------------------
 
     params = {
         "client_key": client_key,
@@ -171,22 +241,22 @@ def main():
         "code_challenge_method": "S256",
     }
 
-    authorization_url = f"{AUTH_URL}?{urlencode(params)}"
+    authorization_url = (
+        f"{AUTH_URL}?{urlencode(params)}"
+    )
+
+    # ------------------------------------------------------------
+    # Start local callback server
+    # ------------------------------------------------------------
 
     server = HTTPServer(
         (HOST, PORT),
         CallbackHandler,
     )
 
-    print()
-    print("=" * 70)
-    print("TikTok OAuth authorization")
-    print("=" * 70)
-    print()
-    print(f"Redirect URI: {REDIRECT_URI}")
-    print(f"Scopes: {SCOPES}")
-    print()
-    print("Opening TikTok authorization in your browser...")
+    print(
+        "Opening TikTok authorization in your browser..."
+    )
     print()
 
     threading.Thread(
@@ -194,7 +264,13 @@ def main():
         daemon=True,
     ).start()
 
-    webbrowser.open(authorization_url)
+    webbrowser.open(
+        authorization_url
+    )
+
+    # ------------------------------------------------------------
+    # Wait for callback
+    # ------------------------------------------------------------
 
     timeout_seconds = 300
     started = time.time()
@@ -211,7 +287,8 @@ def main():
 
     if authorization_error:
         raise RuntimeError(
-            f"TikTok authorization failed: {authorization_error}"
+            "TikTok authorization failed: "
+            f"{authorization_error}"
         )
 
     if authorization_code is None:
@@ -219,9 +296,19 @@ def main():
             "Timed out waiting for TikTok authorization."
         )
 
-    print("Authorization code received.")
-    print("Exchanging authorization code for tokens...")
+    print(
+        "Authorization code received."
+    )
+
+    print(
+        "Exchanging authorization code for tokens..."
+    )
+
     print()
+
+    # ------------------------------------------------------------
+    # Exchange authorization code
+    # ------------------------------------------------------------
 
     tokens = exchange_code_for_tokens(
         client_key=client_key,
@@ -230,33 +317,60 @@ def main():
         code_verifier=code_verifier,
     )
 
+    # ------------------------------------------------------------
+    # Display results
+    # ------------------------------------------------------------
+
     print("=" * 70)
     print("TOKENS RECEIVED")
     print("=" * 70)
     print()
 
-    print(f"open_id: {tokens.get('open_id')}")
-    print(f"scope: {tokens.get('scope')}")
-    print(f"expires_in: {tokens.get('expires_in')}")
-    print(f"refresh_expires_in: {tokens.get('refresh_expires_in')}")
+    print(
+        f"open_id: {tokens.get('open_id')}"
+    )
+
+    print(
+        f"scope: {tokens.get('scope')}"
+    )
+
+    print(
+        f"expires_in: {tokens.get('expires_in')}"
+    )
+
+    print(
+        f"refresh_expires_in: "
+        f"{tokens.get('refresh_expires_in')}"
+    )
+
     print()
 
     print("REFRESH TOKEN:")
-    print(tokens.get("refresh_token"))
+    print(
+        tokens.get("refresh_token")
+    )
+
     print()
 
     print("ACCESS TOKEN:")
-    print(tokens.get("access_token"))
+    print(
+        tokens.get("access_token")
+    )
+
     print()
 
     print("=" * 70)
     print("IMPORTANT")
     print("=" * 70)
+
     print(
-        "Do not commit these tokens to GitHub or put them in source code."
+        "Do not commit these tokens to GitHub "
+        "or put them in source code."
     )
+
     print(
-        "We will store the refresh token as a GitHub Actions secret."
+        "We will store the refresh token as a "
+        "GitHub Actions secret."
     )
 
 
