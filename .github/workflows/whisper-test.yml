@@ -28,8 +28,363 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install requests
+
+      - name: Obtain Twitch App Access Token
+        id: twitch-token
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          import requests
+
+          client_id = os.environ.get("TWITCH_CLIENT_ID")
+          client_secret = os.environ.get("TWITCH_CLIENT_SECRET")
+
+          if not client_id:
+              print("ERROR: Falta el secret TWITCH_CLIENT_ID.")
+              sys.exit(1)
+
+          if not client_secret:
+              print("ERROR: Falta el secret TWITCH_CLIENT_SECRET.")
+              sys.exit(1)
+
+          response = requests.post(
+              "https://id.twitch.tv/oauth2/token",
+              headers={
+                  "Content-Type": "application/x-www-form-urlencoded",
+              },
+              data={
+                  "client_id": client_id,
+                  "client_secret": client_secret,
+                  "grant_type": "client_credentials",
+              },
+              timeout=30,
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print("ERROR: Twitch devolvió una respuesta no válida.")
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  "ERROR obteniendo App Access Token de Twitch:"
+              )
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          access_token = data.get("access_token")
+
+          if not access_token:
+              print("ERROR: Twitch no devolvió access_token.")
+              sys.exit(1)
+
+          expires_in = data.get("expires_in")
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  f"access_token={access_token}\n"
+              )
+
+          print("Twitch App Access Token obtenido correctamente.")
+          print(
+              f"Duración del token: {expires_in} segundos."
+          )
+          print("El token no se mostrará en los logs.")
+          PY
+
+      - name: Validate Twitch App Access Token
+        env:
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          import requests
+
+          access_token = os.environ.get("TWITCH_ACCESS_TOKEN")
+
+          if not access_token:
+              print("ERROR: No se obtuvo Twitch App Access Token.")
+              sys.exit(1)
+
+          response = requests.get(
+              "https://id.twitch.tv/oauth2/validate",
+              headers={
+                  "Authorization": f"OAuth {access_token}",
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /oauth2/validate: HTTP "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          print("Twitch App Access Token válido.")
+          print(
+              f"Client ID: {data.get('client_id')}"
+          )
+          print(
+              f"Expira en: {data.get('expires_in')} segundos"
+          )
+          PY
+
+      - name: Get Twitch broadcaster ID
+        id: twitch-user
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          import requests
+
+          client_id = os.environ["TWITCH_CLIENT_ID"]
+          access_token = os.environ["TWITCH_ACCESS_TOKEN"]
+
+          response = requests.get(
+              "https://api.twitch.tv/helix/users",
+              params={
+                  "login": "kuraimure57",
+              },
+              headers={
+                  "Authorization": f"Bearer {access_token}",
+                  "Client-Id": client_id,
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /helix/users: HTTP "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          users = data.get("data", [])
+
+          if not users:
+              print(
+                  "ERROR: No se encontró el usuario "
+                  "Twitch @kuraimure57."
+              )
+              sys.exit(1)
+
+          user = users[0]
+
+          user_id = user.get("id")
+
+          if not user_id:
+              print(
+                  "ERROR: Twitch no devolvió el ID del usuario."
+              )
+              sys.exit(1)
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  f"user_id={user_id}\n"
+              )
+
+          print("Cuenta Twitch encontrada.")
+          print(
+              f"Usuario: @{user.get('login')}"
+          )
+          print(
+              f"Nombre mostrado: {user.get('display_name')}"
+          )
+          print(
+              f"Broadcaster ID: {user_id}"
+          )
+          PY
+
+      - name: Get latest Twitch clips
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+          TWITCH_BROADCASTER_ID: ${{ steps.twitch-user.outputs.user_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          import requests
+
+          client_id = os.environ["TWITCH_CLIENT_ID"]
+          access_token = os.environ["TWITCH_ACCESS_TOKEN"]
+          broadcaster_id = os.environ["TWITCH_BROADCASTER_ID"]
+
+          response = requests.get(
+              "https://api.twitch.tv/helix/clips",
+              params={
+                  "broadcaster_id": broadcaster_id,
+                  "first": 10,
+              },
+              headers={
+                  "Authorization": f"Bearer {access_token}",
+                  "Client-Id": client_id,
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /helix/clips: HTTP "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          clips = data.get("data", [])
+
+          print("")
+          print("==============================")
+          print("CLIPS ENCONTRADOS EN TWITCH")
+          print("==============================")
+          print("")
+
+          if not clips:
+              print(
+                  "No se han encontrado clips "
+                  "para @kuraimure57."
+              )
+          else:
+              print(
+                  f"Total de clips recibidos: "
+                  f"{len(clips)}"
+              )
+              print("")
+
+              for index, clip in enumerate(
+                  clips,
+                  start=1,
+              ):
+                  print(
+                      f"--- Clip {index} ---"
+                  )
+                  print(
+                      f"ID: {clip.get('id')}"
+                  )
+                  print(
+                      f"Título: {clip.get('title')}"
+                  )
+                  print(
+                      f"Creador: "
+                      f"{clip.get('creator_name')}"
+                  )
+                  print(
+                      f"Juego: "
+                      f"{clip.get('game_name')}"
+                  )
+                  print(
+                      f"Fecha: "
+                      f"{clip.get('created_at')}"
+                  )
+                  print(
+                      f"Duración: "
+                      f"{clip.get('duration')} segundos"
+                  )
+                  print(
+                      f"Vistas: "
+                      f"{clip.get('view_count')}"
+                  )
+                  print(
+                      f"URL: "
+                      f"{clip.get('url')}"
+                  )
+                  print("")
+
+          with open(
+              "twitch_clips.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(
+                  clips,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+      - name: Upload Twitch clips information
+        uses: actions/upload-artifact@v4
+        with:
+          name: twitch-clips-information
+          path: twitch_clips.json
+          if-no-files-found: error
 
       - name: Run Whisper
         run: |
