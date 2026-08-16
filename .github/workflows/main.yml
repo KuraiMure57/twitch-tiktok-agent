@@ -1,10 +1,10 @@
-name: Prueba conexión TikTok
+name: Prueba publicación TikTok
 
 on:
   workflow_dispatch:
 
 jobs:
-  tiktok-auth-test:
+  tiktok-publish-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,30 +21,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Comprobar Secrets
-        env:
-          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
-        run: |
-          if [ -z "$TIKTOK_CLIENT_KEY" ]; then
-            echo "ERROR: Falta TIKTOK_CLIENT_KEY"
-            exit 1
-          fi
-
-          if [ -z "$TIKTOK_CLIENT_SECRET" ]; then
-            echo "ERROR: Falta TIKTOK_CLIENT_SECRET"
-            exit 1
-          fi
-
-          if [ -z "$TIKTOK_REFRESH_TOKEN" ]; then
-            echo "ERROR: Falta TIKTOK_REFRESH_TOKEN"
-            exit 1
-          fi
-
-          echo "Los 3 Secrets están configurados correctamente."
-
       - name: Renovar Access Token de TikTok
+        id: refresh-token
         env:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
@@ -57,10 +35,6 @@ jobs:
 
           token_url = "https://open.tiktokapis.com/v2/oauth/token/"
 
-          client_key = os.environ["TIKTOK_CLIENT_KEY"]
-          client_secret = os.environ["TIKTOK_CLIENT_SECRET"]
-          refresh_token = os.environ["TIKTOK_REFRESH_TOKEN"]
-
           response = requests.post(
               token_url,
               headers={
@@ -68,10 +42,10 @@ jobs:
                   "Cache-Control": "no-cache",
               },
               data={
-                  "client_key": client_key,
-                  "client_secret": client_secret,
+                  "client_key": os.environ["TIKTOK_CLIENT_KEY"],
+                  "client_secret": os.environ["TIKTOK_CLIENT_SECRET"],
                   "grant_type": "refresh_token",
-                  "refresh_token": refresh_token,
+                  "refresh_token": os.environ["TIKTOK_REFRESH_TOKEN"],
               },
               timeout=30,
           )
@@ -83,24 +57,82 @@ jobs:
               sys.exit(1)
 
           if response.status_code != 200:
-              error = data.get("error", "unknown_error")
-              description = data.get(
-                  "error_description",
-                  "Sin descripción"
-              )
-
               print(
-                  f"ERROR TikTok: {error} - {description}"
+                  f"ERROR TikTok: "
+                  f"{data.get('error', 'unknown_error')} - "
+                  f"{data.get('error_description', 'Sin descripción')}"
+              )
+              sys.exit(1)
+
+          access_token = data.get("access_token")
+
+          if not access_token:
+              print("ERROR: TikTok no devolvió Access Token.")
+              sys.exit(1)
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  f"access_token={access_token}\n"
               )
 
-              sys.exit(1)
-
-          if "access_token" not in data:
-              print("ERROR: TikTok no devolvió un Access Token.")
-              sys.exit(1)
-
-          print("Conexión con TikTok correcta.")
-          print("Refresh Token aceptado correctamente.")
-          print("Nuevo Access Token obtenido correctamente.")
-          print("Los tokens NO se han mostrado en los logs.")
+          print("Access Token renovado correctamente.")
+          print("El token no se ha mostrado en los logs.")
           PY
+
+      - name: Crear metadata de prueba
+        run: |
+          cat > metadata.json <<'EOF'
+          {
+            "title": "Prueba de publicación TikTok - KuraiMure57",
+            "hashtags": [
+              "#Gaming",
+              "#Twitch",
+              "#KuraiMure57"
+            ]
+          }
+          EOF
+
+      - name: Publicar vídeo de prueba en TikTok
+        env:
+          TIKTOK_ACCESS_TOKEN: ${{ steps.refresh-token.outputs.access_token }}
+        run: |
+          python src/tiktok_uploader.py \
+            src/tiktok_test.mp4 \
+            metadata.json
+
+      - name: Mostrar resultado de publicación
+        if: always()
+        run: |
+          if [ -f tiktok_result.json ]; then
+            python - <<'PY'
+          import json
+
+          with open(
+              "tiktok_result.json",
+              "r",
+              encoding="utf-8",
+          ) as file:
+              result = json.load(file)
+
+          safe_result = {
+              "status": result.get("status"),
+              "publish_id": result.get("publish_id"),
+              "post_ids": result.get("post_ids"),
+              "caption": result.get("caption"),
+          }
+
+          print(
+              json.dumps(
+                  safe_result,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          )
+          PY
+          else
+            echo "No se generó tiktok_result.json."
+          fi
