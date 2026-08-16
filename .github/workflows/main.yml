@@ -1,10 +1,10 @@
-name: Prueba motor de puntuación
+name: Prueba conexión TikTok
 
 on:
   workflow_dispatch:
 
 jobs:
-  scoring-test:
+  tiktok-auth-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,6 +16,91 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Ejecutar prueba de puntuación
+      - name: Instalar dependencias
         run: |
-          python src/scoring.py
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Comprobar Secrets
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$TIKTOK_CLIENT_KEY" ]; then
+            echo "ERROR: Falta TIKTOK_CLIENT_KEY"
+            exit 1
+          fi
+
+          if [ -z "$TIKTOK_CLIENT_SECRET" ]; then
+            echo "ERROR: Falta TIKTOK_CLIENT_SECRET"
+            exit 1
+          fi
+
+          if [ -z "$TIKTOK_REFRESH_TOKEN" ]; then
+            echo "ERROR: Falta TIKTOK_REFRESH_TOKEN"
+            exit 1
+          fi
+
+          echo "Los 3 Secrets están configurados correctamente."
+
+      - name: Renovar Access Token de TikTok
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import requests
+
+          token_url = "https://open.tiktokapis.com/v2/oauth/token/"
+
+          client_key = os.environ["TIKTOK_CLIENT_KEY"]
+          client_secret = os.environ["TIKTOK_CLIENT_SECRET"]
+          refresh_token = os.environ["TIKTOK_REFRESH_TOKEN"]
+
+          response = requests.post(
+              token_url,
+              headers={
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  "Cache-Control": "no-cache",
+              },
+              data={
+                  "client_key": client_key,
+                  "client_secret": client_secret,
+                  "grant_type": "refresh_token",
+                  "refresh_token": refresh_token,
+              },
+              timeout=30,
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print("ERROR: TikTok devolvió una respuesta no válida.")
+              sys.exit(1)
+
+          if response.status_code != 200:
+              error = data.get("error", "unknown_error")
+              description = data.get(
+                  "error_description",
+                  "Sin descripción"
+              )
+
+              print(
+                  f"ERROR TikTok: {error} - {description}"
+              )
+
+              sys.exit(1)
+
+          if "access_token" not in data:
+              print("ERROR: TikTok no devolvió un Access Token.")
+              sys.exit(1)
+
+          print("Conexión con TikTok correcta.")
+          print("Refresh Token aceptado correctamente.")
+          print("Nuevo Access Token obtenido correctamente.")
+          print("Los tokens NO se han mostrado en los logs.")
+          PY
