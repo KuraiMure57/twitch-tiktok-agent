@@ -18,7 +18,83 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Comprobar cuenta de Twitch
+      - name: Validar Access Token de Twitch
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ secrets.TWITCH_ACCESS_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import requests
+
+          client_id = os.environ["TWITCH_CLIENT_ID"]
+          access_token = os.environ["TWITCH_ACCESS_TOKEN"]
+
+          response = requests.get(
+              "https://id.twitch.tv/oauth2/validate",
+              headers={
+                  "Authorization": f"Bearer {access_token}",
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /oauth2/validate: HTTP {response.status_code}"
+          )
+
+          if not response.ok:
+              print(response.text)
+              sys.exit(1)
+
+          data = response.json()
+
+          token_client_id = data.get("client_id")
+          login = data.get("login")
+          user_id = data.get("user_id")
+          expires_in = data.get("expires_in")
+          scopes = data.get("scopes", [])
+
+          print(
+              f"Cuenta autorizada: @{login}"
+          )
+
+          print(
+              f"User ID: {user_id}"
+          )
+
+          print(
+              f"Client ID del token: {token_client_id}"
+          )
+
+          print(
+              f"Client ID configurado en GitHub: {client_id}"
+          )
+
+          print(
+              f"Scopes: {scopes}"
+          )
+
+          print(
+              f"Expira en: {expires_in} segundos"
+          )
+
+          if token_client_id != client_id:
+              print("")
+              print(
+                  "ERROR: El Access Token pertenece a otro Client ID."
+              )
+              print(
+                  "El token debe generarse utilizando el Client ID "
+                  "que está guardado en TWITCH_CLIENT_ID."
+              )
+              sys.exit(1)
+
+          print("")
+          print("Access Token válido y perteneciente a esta aplicación.")
+          PY
+
+      - name: Comprobar cuenta mediante API
         env:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_ACCESS_TOKEN: ${{ secrets.TWITCH_ACCESS_TOKEN }}
@@ -49,11 +125,12 @@ jobs:
               sys.exit(1)
 
           data = response.json()
-
           users = data.get("data", [])
 
           if not users:
-              print("ERROR: Twitch no devolvió ningún usuario.")
+              print(
+                  "ERROR: Twitch no devolvió ningún usuario."
+              )
               sys.exit(1)
 
           user = users[0]
@@ -66,26 +143,12 @@ jobs:
               f"Display name: {user.get('display_name')}"
           )
 
+          print(
+              f"User ID: {user.get('id')}"
+          )
+
+          print("")
           print("Autenticación Twitch correcta.")
-
-          with open(
-              "twitch_user.json",
-              "w",
-              encoding="utf-8",
-          ) as file:
-              import json
-
-              json.dump(
-                  {
-                      "id": user.get("id"),
-                      "login": user.get("login"),
-                      "display_name": user.get("display_name"),
-                  },
-                  file,
-                  ensure_ascii=False,
-                  indent=2,
-              )
-          PY
 
       - name: Buscar clips recientes
         env:
@@ -93,7 +156,6 @@ jobs:
           TWITCH_ACCESS_TOKEN: ${{ secrets.TWITCH_ACCESS_TOKEN }}
         run: |
           python - <<'PY'
-          import json
           import os
           import sys
           import requests
@@ -101,14 +163,28 @@ jobs:
           client_id = os.environ["TWITCH_CLIENT_ID"]
           access_token = os.environ["TWITCH_ACCESS_TOKEN"]
 
-          with open(
-              "twitch_user.json",
-              "r",
-              encoding="utf-8",
-          ) as file:
-              user = json.load(file)
+          user_response = requests.get(
+              "https://api.twitch.tv/helix/users",
+              headers={
+                  "Client-ID": client_id,
+                  "Authorization": f"Bearer {access_token}",
+              },
+              timeout=30,
+          )
 
-          broadcaster_id = user["id"]
+          if not user_response.ok:
+              print(user_response.text)
+              sys.exit(1)
+
+          users = user_response.json().get("data", [])
+
+          if not users:
+              print(
+                  "ERROR: No se pudo obtener el usuario."
+              )
+              sys.exit(1)
+
+          broadcaster_id = users[0]["id"]
 
           response = requests.get(
               "https://api.twitch.tv/helix/clips",
@@ -131,9 +207,7 @@ jobs:
               print(response.text)
               sys.exit(1)
 
-          data = response.json()
-
-          clips = data.get("data", [])
+          clips = response.json().get("data", [])
 
           print(
               f"Clips encontrados: {len(clips)}"
@@ -154,36 +228,12 @@ jobs:
                   f"URL: {clip.get('url')}"
               )
               print(
-                  f"Created: {clip.get('created_at')}"
+                  f"Fecha: {clip.get('created_at')}"
               )
               print(
-                  f"Creator: {clip.get('creator_name')}"
-              )
-              print(
-                  f"Video ID: {clip.get('video_id')}"
-              )
-
-          with open(
-              "twitch_clips.json",
-              "w",
-              encoding="utf-8",
-          ) as file:
-              json.dump(
-                  clips,
-                  file,
-                  ensure_ascii=False,
-                  indent=2,
+                  f"Creador: {clip.get('creator_name')}"
               )
 
           print("")
           print("Consulta de clips completada correctamente.")
           PY
-
-      - name: Mostrar resultado
-        run: |
-          echo "--- Usuario ---"
-          cat twitch_user.json
-
-          echo ""
-          echo "--- Clips ---"
-          cat twitch_clips.json
