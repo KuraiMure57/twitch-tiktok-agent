@@ -21,68 +21,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Renovar Access Token de TikTok
-        id: refresh-token
-        env:
-          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
-        run: |
-          python - <<'PY'
-          import os
-          import sys
-          import requests
-
-          token_url = "https://open.tiktokapis.com/v2/oauth/token/"
-
-          response = requests.post(
-              token_url,
-              headers={
-                  "Content-Type": "application/x-www-form-urlencoded",
-                  "Cache-Control": "no-cache",
-              },
-              data={
-                  "client_key": os.environ["TIKTOK_CLIENT_KEY"],
-                  "client_secret": os.environ["TIKTOK_CLIENT_SECRET"],
-                  "grant_type": "refresh_token",
-                  "refresh_token": os.environ["TIKTOK_REFRESH_TOKEN"],
-              },
-              timeout=30,
-          )
-
-          try:
-              data = response.json()
-          except ValueError:
-              print("ERROR: TikTok devolvió una respuesta no válida.")
-              sys.exit(1)
-
-          if response.status_code != 200:
-              print(
-                  f"ERROR TikTok: "
-                  f"{data.get('error', 'unknown_error')} - "
-                  f"{data.get('error_description', 'Sin descripción')}"
-              )
-              sys.exit(1)
-
-          access_token = data.get("access_token")
-
-          if not access_token:
-              print("ERROR: TikTok no devolvió Access Token.")
-              sys.exit(1)
-
-          with open(
-              os.environ["GITHUB_OUTPUT"],
-              "a",
-              encoding="utf-8",
-          ) as output:
-              output.write(
-                  f"access_token={access_token}\n"
-              )
-
-          print("Access Token renovado correctamente.")
-          print("El token no se ha mostrado en los logs.")
-          PY
-
       - name: Crear metadata de prueba
         run: |
           cat > metadata.json <<'EOF'
@@ -98,7 +36,9 @@ jobs:
 
       - name: Publicar vídeo de prueba en TikTok
         env:
-          TIKTOK_ACCESS_TOKEN: ${{ steps.refresh-token.outputs.access_token }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
         run: |
           python src/tiktok_uploader.py \
             src/tiktok_test.mp4 \
