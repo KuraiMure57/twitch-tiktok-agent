@@ -9,6 +9,10 @@ import requests
 
 API_BASE = "https://open.tiktokapis.com"
 
+MAX_SINGLE_CHUNK_SIZE = 64 * 1024 * 1024
+DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024
+MIN_CHUNK_SIZE = 5 * 1024 * 1024
+
 
 class TikTokError(RuntimeError):
     pass
@@ -48,7 +52,8 @@ def api_post(
         "ok",
     ):
         raise TikTokError(
-            f"TikTok API error: {json.dumps(data, ensure_ascii=False)}"
+            f"TikTok API error: "
+            f"{json.dumps(data, ensure_ascii=False)}"
         )
 
     return data
@@ -126,7 +131,7 @@ def optimize_hashtags(
 
         if lower in (
             "#twitch",
-            "#kuraiMure57".lower(),
+            "#kuraimure57",
         ):
             continue
 
@@ -237,6 +242,57 @@ def validate_video(
         )
 
 
+def calculate_upload_chunks(
+    video_size,
+):
+    """
+    Calculate the chunk size and total number of chunks
+    according to TikTok Content Posting API restrictions.
+
+    TikTok requires:
+    - Chunks of at least 5 MB and at most 64 MB.
+    - Videos smaller than 5 MB must be uploaded as one chunk
+      whose size equals the complete video.
+    - A single chunk can also contain the complete video when
+      the video is 64 MB or smaller.
+    - Videos larger than 64 MB are split into multiple chunks.
+    """
+
+    if video_size <= 0:
+        raise TikTokError(
+            "El tamaño del vídeo debe ser mayor que cero."
+        )
+
+    # For videos up to 64 MB, upload the entire file
+    # as a single chunk. This also handles videos smaller
+    # than TikTok's 5 MB minimum chunk size.
+    if video_size <= MAX_SINGLE_CHUNK_SIZE:
+        return video_size, 1
+
+    # Videos larger than 64 MB require multiple chunks.
+    chunk_size = DEFAULT_CHUNK_SIZE
+
+    total_chunks = (
+        video_size + chunk_size - 1
+    ) // chunk_size
+
+    remainder = (
+        video_size % chunk_size
+    )
+
+    # If the final remainder would be smaller than 5 MB,
+    # merge it into the previous chunk. This keeps every
+    # non-final chunk at least 5 MB and follows TikTok's
+    # trailing-byte handling rules.
+    if (
+        remainder != 0
+        and remainder < MIN_CHUNK_SIZE
+    ):
+        total_chunks -= 1
+
+    return chunk_size, total_chunks
+
+
 def initialize_direct_post(
     access_token,
     creator_info,
@@ -270,11 +326,23 @@ def initialize_direct_post(
         video_path.stat().st_size
     )
 
-    chunk_size = 10 * 1024 * 1024
+    chunk_size, total_chunks = (
+        calculate_upload_chunks(
+            video_size
+        )
+    )
 
-    total_chunks = (
-        video_size + chunk_size - 1
-    ) // chunk_size
+    print(
+        f"Tamaño vídeo: {video_size} bytes"
+    )
+
+    print(
+        f"Tamaño chunk: {chunk_size} bytes"
+    )
+
+    print(
+        f"Número de chunks: {total_chunks}"
+    )
 
     payload = {
         "post_info": {
@@ -302,11 +370,18 @@ def initialize_direct_post(
 def upload_video(
     upload_url,
     video_path,
-    chunk_size=10 * 1024 * 1024,
+    chunk_size=None,
 ):
     total_size = (
         video_path.stat().st_size
     )
+
+    if chunk_size is None:
+        chunk_size, _ = (
+            calculate_upload_chunks(
+                total_size
+            )
+        )
 
     with video_path.open(
         "rb"
@@ -316,8 +391,24 @@ def upload_video(
 
         while start < total_size:
 
+            remaining = (
+                total_size - start
+            )
+
+            current_chunk_size = min(
+                chunk_size,
+                remaining,
+            )
+
+            # If this is the final chunk and it would be
+            # smaller than 5 MB for a large multi-chunk file,
+            # merge it into the previous chunk.
+            #
+            # The initialization logic already accounts for
+            # this case by reducing total_chunk_count, so here
+            # we only need to read the remaining bytes.
             chunk = file.read(
-                chunk_size
+                current_chunk_size
             )
 
             if not chunk:
@@ -541,9 +632,20 @@ def publish(
         f"Publish ID: {publish_id}"
     )
 
+    video_size = (
+        video_path.stat().st_size
+    )
+
+    chunk_size, _ = (
+        calculate_upload_chunks(
+            video_size
+        )
+    )
+
     upload_video(
         upload_url,
         video_path,
+        chunk_size,
     )
 
     result = wait_for_publication(
