@@ -12,7 +12,9 @@ def format_subtitles(input_path: str, output_path: str) -> None:
     output_file = Path(output_path)
 
     if not input_file.exists():
-        raise FileNotFoundError(f"No existe el archivo: {input_file}")
+        raise FileNotFoundError(
+            f"No existe el archivo: {input_file}"
+        )
 
     with input_file.open("r", encoding="utf-8") as file:
         data = json.load(file)
@@ -20,7 +22,9 @@ def format_subtitles(input_path: str, output_path: str) -> None:
     words = data.get("words", [])
 
     if not words:
-        raise RuntimeError("No se encontraron palabras con timestamps.")
+        raise RuntimeError(
+            "No se encontraron palabras con timestamps."
+        )
 
     subtitles = []
 
@@ -74,16 +78,25 @@ def format_subtitles(input_path: str, output_path: str) -> None:
             }
         )
 
+    result = {
+        "language": data.get("language", "es"),
+        "segments": subtitles,
+    }
+
     with output_file.open("w", encoding="utf-8") as file:
         json.dump(
-            subtitles,
+            result,
             file,
             ensure_ascii=False,
             indent=2,
         )
 
-    print(f"Subtítulos generados: {len(subtitles)}")
-    print(f"Archivo guardado en: {output_file}")
+    print(
+        f"Subtítulos generados: {len(subtitles)}"
+    )
+    print(
+        f"Archivo guardado en: {output_file}"
+    )
 
 
 if __name__ == "__main__":
