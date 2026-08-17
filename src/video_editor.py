@@ -22,24 +22,20 @@ def run_ffmpeg(input_video: str, output_video: str) -> None:
 
         "-filter_complex",
         (
-            # Fondo ampliado, desenfocado y ocupando todo el formato 9:16.
-            "[0:v]"
-            "scale=1080:1920:force_original_aspect_ratio=increase,"
+            # Fondo vertical desenfocado.
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
             "crop=1080:1920,"
-            "boxblur=25:10"
-            "[background];"
+            "boxblur=25:10[background];"
 
-            # Recortar el vídeo principal a formato 1:1.
-            # Se conserva la zona central del gameplay.
-            "[0:v]"
-            "crop=ih:ih:(iw-ih)/2:0,"
-            "scale=1080:1080"
-            "[foreground];"
+            # Vídeo principal.
+            # Se adapta al formato sin asumir que el vídeo
+            # de entrada es horizontal.
+            "[0:v]scale=1080:1080:force_original_aspect_ratio=increase,"
+            "crop=1080:1080,"
+            "setsar=1[foreground];"
 
-            # Colocar el gameplay cuadrado en el centro vertical.
-            "[background][foreground]"
-            "overlay=0:420"
-            "[v]"
+            # Colocar el vídeo principal centrado.
+            "[background][foreground]overlay=0:420[v]"
         ),
 
         "-map",
