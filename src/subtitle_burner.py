@@ -124,22 +124,30 @@ def burn_subtitles(
             f"No existe el SRT: {subtitle_file}"
         )
 
+    subtitle_filter = (
+        "subtitles="
+        f"{subtitle_file}:"
+        "force_style="
+        "FontName=Arial\\,"
+        "FontSize=18\\,"
+        "Bold=1\\,"
+        "Alignment=2\\,"
+        "MarginV=60"
+    )
+
     command = [
         "ffmpeg",
         "-y",
         "-i",
         str(video_file),
         "-vf",
-        (
-            "subtitles="
-            + str(subtitle_file)
-            + ":force_style="
-            "FontName=Arial,"
-            "FontSize=18,"
-            "Bold=1,"
-            "Alignment=2,"
-            "MarginV=60"
-        ),
+        subtitle_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
         "-c:a",
         "copy",
         str(output_file),
@@ -147,6 +155,10 @@ def burn_subtitles(
 
     print(
         "Quemando subtítulos en el vídeo..."
+    )
+
+    print(
+        "Ejecutando FFmpeg..."
     )
 
     subprocess.run(
