@@ -24,7 +24,9 @@ def upload_video(client, video_path):
             return file_info
 
         if file_info.state.name == "FAILED":
-            raise RuntimeError("Gemini no pudo procesar el vídeo.")
+            raise RuntimeError(
+                "Gemini no pudo procesar el vídeo."
+            )
 
         time.sleep(2)
 
@@ -39,18 +41,26 @@ def analyze(video_path, input_path, output_path):
 
     client = genai.Client(api_key=api_key)
 
-    with open(input_path, "r", encoding="utf-8") as f:
+    with open(
+        input_path,
+        "r",
+        encoding="utf-8"
+    ) as f:
         ai_input = json.load(f)
 
-    video_file = upload_video(client, video_path)
+    video_file = upload_video(
+        client,
+        video_path
+    )
 
     prompt = f"""
 Analiza este clip de vídeo de Twitch junto con la transcripción.
 
-La transcripción procede de Whisper y puede contener errores.
+La transcripción procede de Whisper y contiene segmentos con
+timestamps precisos obtenidos mediante timestamps por palabra.
 
-Tu objetivo es determinar si existe un momento interesante para convertir
-este fragmento en un TikTok o Short.
+Tu objetivo es determinar si existe un momento interesante para
+convertir este fragmento en un TikTok o Short.
 
 Analiza:
 
@@ -63,26 +73,31 @@ Analiza:
 - el contexto del momento;
 - si el momento tiene potencial para redes sociales.
 
-IMPORTANTE SOBRE LA TRANSCRIPCIÓN:
+IMPORTANTE SOBRE LOS SEGMENTOS:
 
-Una frase puede estar gramaticalmente formulada como una pregunta,
-pero ser realmente una reacción de sorpresa o incredulidad.
+Los segmentos proporcionados proceden de Whisper.
 
-Debes representar correctamente la intención emocional mediante la
-puntuación, sin cambiar las palabras que realmente se pronuncian.
+Cada segmento ya tiene un timestamp correcto.
 
-Por ejemplo:
+DEBES CONSERVAR EXACTAMENTE:
 
-"En serio?"
+- el número de segmentos;
+- el orden de los segmentos;
+- el valor de "start";
+- el valor de "end".
 
-si se pronuncia como una reacción de sorpresa puede convertirse en:
+NO puedes:
 
-"¡¿En serio?!"
+- cambiar timestamps;
+- desplazar timestamps;
+- fusionar segmentos;
+- dividir segmentos;
+- eliminar segmentos;
+- crear segmentos nuevos.
 
-No debes convertir automáticamente todas las preguntas en exclamaciones.
-Utiliza el audio y el vídeo para decidirlo.
+Solo puedes modificar el campo "text".
 
-REGLAS DE TRANSCRIPCIÓN:
+REGLAS DE CORRECCIÓN:
 
 1. Comprende qué ocurre visualmente.
 2. Utiliza el audio y la transcripción.
@@ -91,14 +106,46 @@ REGLAS DE TRANSCRIPCIÓN:
 5. Corrige mayúsculas y minúsculas cuando sea necesario.
 6. Interpreta correctamente sorpresa, emoción, incredulidad, enfado,
    alegría, miedo, frustración u otras reacciones cuando sean evidentes.
-7. Mantén exactamente los timestamps originales de los segmentos.
+7. Mantén las palabras que realmente se pronuncian.
 8. No inventes palabras.
-9. No elimines segmentos.
+9. No elimines información hablada.
 10. Mantén el idioma original.
+11. No cambies los timestamps bajo ninguna circunstancia.
+
+IMPORTANTE:
+
+Si una corrección del texto hace que parezca necesario cambiar
+los timestamps, NO los cambies.
+
+Los timestamps originales tienen prioridad absoluta.
+
+Por ejemplo, si recibes:
+
+{{
+  "start": 1.234,
+  "end": 2.456,
+  "text": "hola chicos"
+}}
+
+debes devolver exactamente:
+
+{{
+  "start": 1.234,
+  "end": 2.456,
+  "text": "Hola, chicos."
+}}
+
+pero NUNCA:
+
+{{
+  "start": 1.100,
+  "end": 2.700,
+  "text": "Hola, chicos."
+}}
 
 ANÁLISIS DEL CLIP:
 
-Debes determinar:
+Además de corregir los segmentos, debes determinar:
 
 - el tipo de momento;
 - la emoción principal;
@@ -109,7 +156,9 @@ Debes determinar:
 - un posible hook para captar la atención;
 - un posible título.
 
-Los timestamps del clip deben estar dentro del rango del vídeo.
+Los timestamps de "clip_start" y "clip_end" son independientes
+de los timestamps de los subtítulos y sí pueden determinarse
+analizando el vídeo.
 
 El clip_start debe representar el momento en el que empieza el
 acontecimiento relevante.
@@ -131,7 +180,7 @@ La respuesta DEBE tener exactamente esta estructura:
     {{
       "start": 0.0,
       "end": 0.0,
-      "text": "texto"
+      "text": "texto corregido"
     }}
   ],
   "analysis": {{
@@ -176,11 +225,19 @@ Información proporcionada:
 
 {json.dumps(ai_input, ensure_ascii=False, indent=2)}
 
-Analiza primero el vídeo y después decide la corrección y el potencial
-del clip.
+Antes de responder:
+
+1. Analiza el vídeo.
+2. Comprende el contexto y el audio.
+3. Corrige únicamente el texto.
+4. Comprueba que el número de segmentos sea exactamente el mismo.
+5. Comprueba que todos los timestamps sean exactamente los recibidos.
+6. Después genera el análisis del clip.
 """
 
-    print("Enviando vídeo + transcripción a Gemini...")
+    print(
+        "Enviando vídeo + transcripción a Gemini..."
+    )
 
     interaction = client.interactions.create(
         model=MODEL,
@@ -211,6 +268,7 @@ del clip.
 
     try:
         result = json.loads(response_text)
+
     except json.JSONDecodeError:
         cleaned = response_text.strip()
 
@@ -220,9 +278,15 @@ del clip.
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
 
-        result = json.loads(cleaned.strip())
+        result = json.loads(
+            cleaned.strip()
+        )
 
-    with open(output_path, "w", encoding="utf-8") as f:
+    with open(
+        output_path,
+        "w",
+        encoding="utf-8"
+    ) as f:
         json.dump(
             result,
             f,
@@ -230,10 +294,13 @@ del clip.
             indent=2
         )
 
-    print(f"Respuesta de Gemini guardada en {output_path}")
+    print(
+        f"Respuesta de Gemini guardada en {output_path}"
+    )
 
 
 if __name__ == "__main__":
+
     if len(sys.argv) != 4:
         print(
             "Uso: python src/gemini_analyzer.py "
