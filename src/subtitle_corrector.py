@@ -9,7 +9,10 @@ def clean_text(text: str) -> str:
     ).strip()
 
 
-def correct_subtitles(input_path: str, output_path: str) -> None:
+def correct_subtitles(
+    input_path: str,
+    output_path: str,
+) -> None:
     input_file = Path(input_path)
     output_file = Path(output_path)
 
@@ -18,19 +21,49 @@ def correct_subtitles(input_path: str, output_path: str) -> None:
             f"No existe el archivo: {input_file}"
         )
 
-    with input_file.open("r", encoding="utf-8") as file:
-        subtitles = json.load(file)
+    with input_file.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        data = json.load(file)
 
-    if not isinstance(subtitles, list):
+    if not isinstance(data, dict):
         raise ValueError(
-            "El archivo de subtítulos debe contener una lista."
+            "El archivo de subtítulos debe ser un objeto JSON."
         )
 
-    corrected = []
+    segments = data.get("segments", [])
 
-    for subtitle in subtitles:
+    if not isinstance(segments, list):
+        raise ValueError(
+            "'segments' debe ser una lista."
+        )
+
+    corrected_segments = []
+
+    for index, subtitle in enumerate(segments):
         if not isinstance(subtitle, dict):
-            continue
+            raise ValueError(
+                f"El segmento {index} no es un objeto."
+            )
+
+        if "start" not in subtitle:
+            raise ValueError(
+                f"Falta start en el segmento {index}."
+            )
+
+        if "end" not in subtitle:
+            raise ValueError(
+                f"Falta end en el segmento {index}."
+            )
+
+        start = float(subtitle["start"])
+        end = float(subtitle["end"])
+
+        if end <= start:
+            raise ValueError(
+                f"Timestamps inválidos en segmento {index}."
+            )
 
         text = clean_text(
             str(subtitle.get("text", ""))
@@ -39,13 +72,7 @@ def correct_subtitles(input_path: str, output_path: str) -> None:
         if not text:
             continue
 
-        start = float(subtitle["start"])
-        end = float(subtitle["end"])
-
-        if end <= start:
-            continue
-
-        corrected.append(
+        corrected_segments.append(
             {
                 "start": round(start, 3),
                 "end": round(end, 3),
@@ -53,16 +80,25 @@ def correct_subtitles(input_path: str, output_path: str) -> None:
             }
         )
 
-    with output_file.open("w", encoding="utf-8") as file:
+    result = {
+        "language": data.get("language", "es"),
+        "segments": corrected_segments,
+    }
+
+    with output_file.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
         json.dump(
-            corrected,
+            result,
             file,
             ensure_ascii=False,
             indent=2,
         )
 
     print(
-        f"Subtítulos corregidos: {len(corrected)}"
+        f"Subtítulos corregidos: "
+        f"{len(corrected_segments)}"
     )
     print(
         f"Archivo guardado en: {output_file}"
