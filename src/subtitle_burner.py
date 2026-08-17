@@ -26,19 +26,36 @@ def seconds_to_ass_time(seconds: float) -> str:
     seconds_value = remaining // 100
     centiseconds = remaining % 100
 
-    return f"{hours}:{minutes:02d}:{seconds_value:02d}.{centiseconds:02d}"
+    return (
+        f"{hours}:"
+        f"{minutes:02d}:"
+        f"{seconds_value:02d}."
+        f"{centiseconds:02d}"
+    )
 
 
-def create_ass_file(subtitles_path: Path, ass_path: Path) -> None:
+def create_ass_file(
+    subtitles_path: Path,
+    ass_path: Path
+) -> None:
+
     if not subtitles_path.exists():
         raise FileNotFoundError(
-            f"No existe el archivo de subtítulos: {subtitles_path}"
+            f"No existe el archivo de subtítulos: "
+            f"{subtitles_path}"
         )
 
     events = []
 
-    with subtitles_path.open("r", encoding="utf-8") as file:
-        for line_number, line in enumerate(file, start=1):
+    with subtitles_path.open(
+        "r",
+        encoding="utf-8"
+    ) as file:
+
+        for line_number, line in enumerate(
+            file,
+            start=1
+        ):
             line = line.strip()
 
             if not line:
@@ -48,7 +65,8 @@ def create_ass_file(subtitles_path: Path, ass_path: Path) -> None:
 
             if len(parts) != 3:
                 raise ValueError(
-                    f"Línea inválida en {subtitles_path} "
+                    f"Línea inválida en "
+                    f"{subtitles_path} "
                     f"(línea {line_number}): {line}"
                 )
 
@@ -59,12 +77,13 @@ def create_ass_file(subtitles_path: Path, ass_path: Path) -> None:
                 end = float(end_str)
             except ValueError:
                 raise ValueError(
-                    f"Timestamps inválidos en la línea {line_number}: {line}"
+                    "Timestamps inválidos en la "
+                    f"línea {line_number}: {line}"
                 )
 
             if end <= start:
                 raise ValueError(
-                    f"El final debe ser mayor que el inicio "
+                    "El final debe ser mayor que el inicio "
                     f"en la línea {line_number}: {line}"
                 )
 
@@ -84,7 +103,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: TikTok,DejaVu Sans,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,5,2,2,80,80,180,1
+Style: TikTok,DejaVu Sans,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,5,2,2,80,80,500,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -92,10 +111,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     for start, end, text in events:
         ass_content += (
-            f"Dialogue: 0,{start},{end},TikTok,,0,0,0,,{text}\n"
+            f"Dialogue: 0,"
+            f"{start},"
+            f"{end},"
+            f"TikTok,,"
+            f"0,0,0,,"
+            f"{text}\n"
         )
 
-    with ass_path.open("w", encoding="utf-8") as file:
+    with ass_path.open(
+        "w",
+        encoding="utf-8"
+    ) as file:
         file.write(ass_content)
 
 
@@ -110,7 +137,9 @@ def burn_subtitles(
     output = Path(output_path)
 
     if not video.exists():
-        raise FileNotFoundError(f"No existe el vídeo: {video}")
+        raise FileNotFoundError(
+            f"No existe el vídeo: {video}"
+        )
 
     if not subtitles.exists():
         raise FileNotFoundError(
@@ -120,7 +149,10 @@ def burn_subtitles(
     ass_path = output.with_suffix(".ass")
 
     print("Creando archivo ASS de subtítulos...")
-    create_ass_file(subtitles, ass_path)
+    create_ass_file(
+        subtitles,
+        ass_path
+    )
 
     print("Quemando subtítulos en el vídeo...")
 
@@ -148,17 +180,22 @@ def burn_subtitles(
 
     if not output.exists():
         raise RuntimeError(
-            f"FFmpeg terminó pero no creó el archivo: {output}"
+            "FFmpeg terminó pero no creó el archivo: "
+            f"{output}"
         )
 
-    print(f"Vídeo con subtítulos creado: {output}")
+    print(
+        f"Vídeo con subtítulos creado: {output}"
+    )
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
         print(
             "Uso: python src/subtitle_burner.py "
-            "<clip.mp4> <final_subtitles.txt> <final_clip.mp4>"
+            "<clip.mp4> "
+            "<final_subtitles.txt> "
+            "<final_clip.mp4>"
         )
         sys.exit(1)
 
