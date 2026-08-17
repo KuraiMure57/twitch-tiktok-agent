@@ -1,210 +1,100 @@
 import json
-import re
 import sys
 from pathlib import Path
 
-MAX_WORDS = 3
-MAX_CHARS = 28
-MAX_DURATION = 1.6
-MAX_GAP = 0.28
 
 def clean_text(text: str) -> str:
-return " ".join(text.split()).strip()
+    return " ".join(text.split()).strip()
 
-def is_sentence_end(text: str) -> bool:
-return bool(
-re.search(
-r"[.!?¡!]+$",
-text.strip(),
-)
-)
 
-def build_segment(words):
-if not words:
-return None
+def format_subtitles(input_path: str, output_path: str) -> None:
+    input_file = Path(input_path)
+    output_file = Path(output_path)
 
-```
-text = " ".join(
-    clean_text(word["text"])
-    for word in words
-    if clean_text(word["text"])
-).strip()
+    if not input_file.exists():
+        raise FileNotFoundError(f"No existe el archivo: {input_file}")
 
-if not text:
-    return None
+    with input_file.open("r", encoding="utf-8") as file:
+        data = json.load(file)
 
-return {
-    "start": round(
-        float(words[0]["start"]),
-        3,
-    ),
-    "end": round(
-        float(words[-1]["end"]),
-        3,
-    ),
-    "text": text,
-}
-```
+    words = data.get("words", [])
 
-def must_split(current, next_word):
-if not current:
-return False
+    if not words:
+        raise RuntimeError("No se encontraron palabras con timestamps.")
 
-```
-current_text = " ".join(
-    word["text"] for word in current
-)
+    subtitles = []
 
-proposed_text = (
-    current_text
-    + " "
-    + next_word["text"]
-).strip()
+    current_words = []
+    current_start = None
+    current_end = None
 
-start = float(current[0]["start"])
-end = float(current[-1]["end"])
+    max_words = 5
+    max_duration = 2.5
 
-duration = end - start
+    for word in words:
+        text = clean_text(word.get("text", ""))
 
-gap = (
-    float(next_word["start"])
-    - end
-)
+        if not text:
+            continue
 
-if len(current) >= MAX_WORDS:
-    return True
+        start = float(word["start"])
+        end = float(word["end"])
 
-if len(proposed_text) > MAX_CHARS:
-    return True
+        if current_start is None:
+            current_start = start
 
-if duration >= MAX_DURATION:
-    return True
+        current_words.append(text)
+        current_end = end
 
-if gap >= MAX_GAP:
-    return True
+        duration = current_end - current_start
 
-if is_sentence_end(
-    current[-1]["text"]
-):
-    return True
+        if (
+            len(current_words) >= max_words
+            or duration >= max_duration
+            or text.endswith((".", "!", "?", ","))
+        ):
+            subtitles.append(
+                {
+                    "start": round(current_start, 3),
+                    "end": round(current_end, 3),
+                    "text": " ".join(current_words),
+                }
+            )
 
-return False
-```
+            current_words = []
+            current_start = None
+            current_end = None
 
-def format_transcription(
-input_path: str,
-output_path: str,
-) -> None:
-
-```
-input_file = Path(input_path)
-output_file = Path(output_path)
-
-if not input_file.exists():
-    raise FileNotFoundError(
-        f"No existe el archivo: {input_file}"
-    )
-
-with input_file.open(
-    "r",
-    encoding="utf-8",
-) as file:
-    data = json.load(file)
-
-words = data.get("words", [])
-
-if not words:
-    raise ValueError(
-        "No se encontraron palabras."
-    )
-
-segments = []
-current = []
-
-for raw_word in words:
-    text = clean_text(
-        raw_word.get("text", "")
-    )
-
-    if not text:
-        continue
-
-    word = {
-        "start": float(
-            raw_word["start"]
-        ),
-        "end": float(
-            raw_word["end"]
-        ),
-        "text": text,
-    }
-
-    if not current:
-        current.append(word)
-        continue
-
-    if must_split(
-        current,
-        word,
-    ):
-        segment = build_segment(
-            current
+    if current_words and current_start is not None:
+        subtitles.append(
+            {
+                "start": round(current_start, 3),
+                "end": round(current_end, 3),
+                "text": " ".join(current_words),
+            }
         )
 
-        if segment:
-            segments.append(segment)
+    with output_file.open("w", encoding="utf-8") as file:
+        json.dump(
+            subtitles,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
 
-        current = [word]
-    else:
-        current.append(word)
+    print(f"Subtítulos generados: {len(subtitles)}")
+    print(f"Archivo guardado en: {output_file}")
 
-final_segment = build_segment(
-    current
-)
 
-if final_segment:
-    segments.append(final_segment)
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print(
+            "Uso: python src/subtitle_formatter.py "
+            "<input.json> <output.json>"
+        )
+        sys.exit(1)
 
-if not segments:
-    raise RuntimeError(
-        "No se pudieron crear subtítulos."
+    format_subtitles(
+        sys.argv[1],
+        sys.argv[2],
     )
-
-result = {
-    "language": data.get(
-        "language",
-        "es",
-    ),
-    "segments": segments,
-}
-
-with output_file.open(
-    "w",
-    encoding="utf-8",
-) as file:
-    json.dump(
-        result,
-        file,
-        ensure_ascii=False,
-        indent=2,
-    )
-
-print(
-    f"Segmentos de subtítulos: "
-    f"{len(segments)}"
-)
-```
-
-if **name** == "**main**":
-if len(sys.argv) != 3:
-print(
-"Uso: python src/subtitle_formatter.py "
-"<input.json> <output.json>"
-)
-sys.exit(1)
-
-```
-format_transcription(
-    sys.argv[1],
-    sys.argv[2],
-)
