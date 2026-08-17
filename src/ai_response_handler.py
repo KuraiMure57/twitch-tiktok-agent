@@ -1,141 +1,107 @@
 import json
 import sys
 
-
-def load_json(input_file):
-    with open(
-        input_file,
-        "r",
-        encoding="utf-8"
-    ) as f:
-        return json.load(f)
-
+def load_json(path):
+with open(
+path,
+"r",
+encoding="utf-8",
+) as file:
+return json.load(file)
 
 def save_subtitles(
-    ai_data,
-    original_data,
-    output_file
+ai_data,
+timing_data,
+output_file,
 ):
-    ai_segments = ai_data.get(
-        "segments",
-        []
+
+```
+ai_segments = ai_data.get(
+    "segments",
+    []
+)
+
+timing_segments = timing_data.get(
+    "segments",
+    []
+)
+
+if len(ai_segments) != len(
+    timing_segments
+):
+    raise ValueError(
+        "El número de segmentos de Gemini "
+        "no coincide con los timestamps "
+        "originales."
     )
 
-    original_segments = original_data.get(
-        "segments",
-        []
-    )
+with open(
+    output_file,
+    "w",
+    encoding="utf-8",
+) as file:
 
-    if not original_segments:
-        raise ValueError(
-            "La transcripción original no contiene segmentos."
+    for timing, ai in zip(
+        timing_segments,
+        ai_segments,
+    ):
+
+        start = float(
+            timing["start"]
         )
 
-    if not ai_segments:
-        raise ValueError(
-            "La respuesta de IA no contiene segmentos."
+        end = float(
+            timing["end"]
         )
 
-    if len(ai_segments) != len(original_segments):
-        raise ValueError(
-            "Gemini modificó el número de segmentos. "
-            f"Originales: {len(original_segments)} | "
-            f"Gemini: {len(ai_segments)}"
-        )
-
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        for index, (
-            original,
-            ai_segment
-        ) in enumerate(
-            zip(
-                original_segments,
-                ai_segments
-            ),
-            start=1
-        ):
-
-            original_start = float(
-                original["start"]
-            )
-
-            original_end = float(
-                original["end"]
-            )
-
-            ai_start = float(
-                ai_segment["start"]
-            )
-
-            ai_end = float(
-                ai_segment["end"]
-            )
-
-            # Gemini NO puede modificar los timestamps.
-            if ai_start != original_start:
-                raise ValueError(
-                    "Gemini modificó el timestamp de inicio "
-                    f"del segmento {index}. "
-                    f"Original: {original_start} | "
-                    f"Gemini: {ai_start}"
-                )
-
-            if ai_end != original_end:
-                raise ValueError(
-                    "Gemini modificó el timestamp de final "
-                    f"del segmento {index}. "
-                    f"Original: {original_end} | "
-                    f"Gemini: {ai_end}"
-                )
-
-            text = ai_segment.get(
-                "text",
-                ""
-            ).strip()
-
-            if not text:
-                text = original.get(
+        text = " ".join(
+            str(
+                ai.get(
                     "text",
-                    ""
-                ).strip()
+                    timing.get(
+                        "text",
+                        ""
+                    ),
+                )
+            ).split()
+        ).strip()
 
-            f.write(
-                f"{original_start:.3f}|"
-                f"{original_end:.3f}|"
-                f"{text}\n"
-            )
+        if not text:
+            continue
 
-
-if __name__ == "__main__":
-
-    if len(sys.argv) != 4:
-        raise SystemExit(
-            "Uso: python src/ai_response_handler.py "
-            "ai_response.json "
-            "corrected_subtitles.json "
-            "final_subtitles.txt"
+        file.write(
+            f"{start:.3f}|"
+            f"{end:.3f}|"
+            f"{text}\n"
         )
+```
 
-    ai_data = load_json(
-        sys.argv[1]
+if **name** == "**main**":
+
+```
+if len(sys.argv) != 4:
+    raise SystemExit(
+        "Uso: python src/ai_response_handler.py "
+        "ai_response.json "
+        "corrected_subtitles.json "
+        "final_subtitles.txt"
     )
 
-    original_data = load_json(
-        sys.argv[2]
-    )
+ai_data = load_json(
+    sys.argv[1]
+)
 
-    save_subtitles(
-        ai_data,
-        original_data,
-        sys.argv[3]
-    )
+timing_data = load_json(
+    sys.argv[2]
+)
 
-    print(
-        f"Subtítulos finales guardados en "
-        f"{sys.argv[3]}"
-    )
+save_subtitles(
+    ai_data,
+    timing_data,
+    sys.argv[3],
+)
+
+print(
+    "Subtítulos finales creados "
+    "utilizando los timestamps originales."
+)
