@@ -1,4 +1,3 @@
-```python
 import json
 import sys
 from pathlib import Path
@@ -104,4 +103,3 @@ if __name__ == "__main__":
         sys.argv[1],
         sys.argv[2],
     )
-```
