@@ -31,6 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install requests
+          pip install yt-dlp
 
       # ============================================================
       # TWITCH
@@ -252,21 +253,32 @@ jobs:
               print(f"Vistas: {clip.get('view_count')}")
               print(f"URL: {clip.get('url')}")
 
-          # Elegimos el clip más reciente.
+          # La API devuelve los clips ordenados por fecha de creación.
+          # Seleccionamos el primero como el más reciente.
           clip = clips[0]
 
-          with open("selected_twitch_clip.json", "w", encoding="utf-8") as f:
+          with open(
+              "selected_twitch_clip.json",
+              "w",
+              encoding="utf-8",
+          ) as f:
               json.dump(
                   clip,
                   f,
                   ensure_ascii=False,
-                  indent=2
+                  indent=2,
               )
 
           print("")
-          print("CLIP SELECCIONADO:")
-          print(clip.get("id"))
-          print(clip.get("url"))
+          print("==============================")
+          print("CLIP SELECCIONADO")
+          print("==============================")
+          print(f"ID: {clip.get('id')}")
+          print(f"Título: {clip.get('title')}")
+          print(f"Fecha: {clip.get('created_at')}")
+          print(f"Duración: {clip.get('duration')} s")
+          print(f"Vistas: {clip.get('view_count')}")
+          print(f"URL: {clip.get('url')}")
           PY
 
       - name: Upload Twitch clips information
@@ -277,12 +289,93 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
+      # DESCARGAR CLIP REAL DE TWITCH
+      # ============================================================
+
+      - name: Download selected Twitch clip
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          with open(
+              "selected_twitch_clip.json",
+              "r",
+              encoding="utf-8",
+          ) as f:
+              clip = json.load(f)
+
+          clip_url = clip.get("url")
+
+          if not clip_url:
+              print("ERROR: Twitch no devolvió la URL del clip.")
+              sys.exit(1)
+
+          print("")
+          print("==============================")
+          print("DESCARGANDO CLIP DE TWITCH")
+          print("==============================")
+          print(f"ID: {clip.get('id')}")
+          print(f"Título: {clip.get('title')}")
+          print(f"Fecha: {clip.get('created_at')}")
+          print(f"Duración: {clip.get('duration')} s")
+          print(f"URL: {clip_url}")
+          print("")
+
+          subprocess.run(
+              [
+                  "yt-dlp",
+                  "--no-playlist",
+                  "--no-warnings",
+                  "--remux-video",
+                  "mp4",
+                  "-o",
+                  "twitch_clip.%(ext)s",
+                  clip_url,
+              ],
+              check=True,
+          )
+          PY
+
+          echo ""
+          echo "=============================="
+          echo "VERIFICANDO CLIP DESCARGADO"
+          echo "=============================="
+
+          if [ ! -f twitch_clip.mp4 ]; then
+            echo "ERROR: No se ha creado twitch_clip.mp4"
+            echo "Archivos encontrados:"
+            ls -lah
+            exit 1
+          fi
+
+          echo "Clip descargado correctamente:"
+          ls -lh twitch_clip.mp4
+
+          echo ""
+          echo "Información del vídeo:"
+
+          ffprobe -v error \
+            -show_entries format=duration \
+            -show_entries stream=codec_name,width,height,r_frame_rate \
+            -of default=noprint_wrappers=1 \
+            twitch_clip.mp4
+
+      - name: Upload downloaded Twitch clip
+        uses: actions/upload-artifact@v4
+        with:
+          name: twitch-clip-source
+          path: twitch_clip.mp4
+          if-no-files-found: error
+
+      # ============================================================
       # WHISPER
       # ============================================================
 
       - name: Run Whisper
         run: |
-          python src/transcribe.py src/tiktok_test.mp4 output.txt
+          python src/transcribe.py twitch_clip.mp4 output.txt
 
       - name: Show Whisper output
         run: |
@@ -325,7 +418,11 @@ jobs:
           python - <<'PY'
           import json
 
-          with open("corrected_subtitles.json", "r", encoding="utf-8") as f:
+          with open(
+              "corrected_subtitles.json",
+              "r",
+              encoding="utf-8",
+          ) as f:
               subtitles = json.load(f)
 
           ai_input = {
@@ -335,23 +432,27 @@ jobs:
                   "correct_transcription": True,
                   "preserve_timestamps": True,
                   "never_change_timestamps": True,
-                  "return_only_valid_json": True
-              }
+                  "return_only_valid_json": True,
+              },
           }
 
-          with open("ai_input.json", "w", encoding="utf-8") as f:
+          with open(
+              "ai_input.json",
+              "w",
+              encoding="utf-8",
+          ) as f:
               json.dump(
                   ai_input,
                   f,
                   ensure_ascii=False,
-                  indent=2
+                  indent=2,
               )
           PY
 
       - name: Analyze video with Gemini
         run: |
           python src/gemini_analyzer.py \
-            src/tiktok_test.mp4 \
+            twitch_clip.mp4 \
             ai_input.json \
             ai_response.json
         env:
@@ -415,7 +516,7 @@ jobs:
       - name: Extract clip
         run: |
           python src/clip_extractor.py \
-            src/tiktok_test.mp4 \
+            twitch_clip.mp4 \
             scored_response.json \
             clip.mp4
 
