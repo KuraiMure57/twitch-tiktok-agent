@@ -1,3 +1,4 @@
+```python
 import json
 import sys
 from pathlib import Path
@@ -5,15 +6,20 @@ from pathlib import Path
 import whisper
 
 
+MODEL = "small"
+
+
 def transcribe_video(video_path: str, output_path: str) -> None:
     video = Path(video_path)
     output = Path(output_path)
 
     if not video.exists():
-        raise FileNotFoundError(f"No existe el vídeo: {video}")
+        raise FileNotFoundError(
+            f"No existe el vídeo: {video}"
+        )
 
     print("Cargando modelo Whisper...")
-    model = whisper.load_model("small")
+    model = whisper.load_model(MODEL)
 
     print("Transcribiendo vídeo...")
 
@@ -22,25 +28,45 @@ def transcribe_video(video_path: str, output_path: str) -> None:
         language="es",
         fp16=False,
         word_timestamps=True,
-        condition_on_previous_text=False
+        condition_on_previous_text=False,
+        temperature=0,
+        verbose=False,
     )
 
     words = []
 
-    for segment in result["segments"]:
+    for segment in result.get("segments", []):
         for word in segment.get("words", []):
-            text = word["word"].strip()
+            text = word.get("word", "").strip()
 
-            if text:
-                words.append({
-                    "start": round(word["start"], 3),
-                    "end": round(word["end"], 3),
-                    "text": text
-                })
+            if not text:
+                continue
+
+            start = word.get("start")
+            end = word.get("end")
+
+            if start is None or end is None:
+                continue
+
+            if end <= start:
+                continue
+
+            words.append(
+                {
+                    "start": round(float(start), 3),
+                    "end": round(float(end), 3),
+                    "text": text,
+                }
+            )
+
+    if not words:
+        raise RuntimeError(
+            "Whisper no devolvió palabras con timestamps."
+        )
 
     transcription = {
-        "language": "es",
-        "words": words
+        "language": result.get("language", "es"),
+        "words": words,
     }
 
     json_output = output.with_suffix(".json")
@@ -50,7 +76,7 @@ def transcribe_video(video_path: str, output_path: str) -> None:
             transcription,
             file,
             ensure_ascii=False,
-            indent=2
+            indent=2,
         )
 
     with output.open("w", encoding="utf-8") as file:
@@ -63,6 +89,7 @@ def transcribe_video(video_path: str, output_path: str) -> None:
 
     print(f"Transcripción guardada en {output}")
     print(f"JSON guardado en {json_output}")
+    print(f"Palabras detectadas: {len(words)}")
 
 
 if __name__ == "__main__":
@@ -73,4 +100,8 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    transcribe_video(sys.argv[1], sys.argv[2])
+    transcribe_video(
+        sys.argv[1],
+        sys.argv[2],
+    )
+```
