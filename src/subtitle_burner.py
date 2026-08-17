@@ -3,19 +3,39 @@ import subprocess
 from pathlib import Path
 
 
+FONT_SIZE = 68
+MARGIN_L = 120
+MARGIN_R = 120
+MARGIN_V = 150
+
+
 def ass_escape(text: str) -> str:
-    """Escapa caracteres especiales para ASS."""
     return (
-        text.replace("\\", r"\\")
-            .replace("{", r"\{")
-            .replace("}", r"\}")
-            .replace("\n", r"\N")
+        text.replace(
+            "\\",
+            r"\\"
+        )
+        .replace(
+            "{",
+            r"\{"
+        )
+        .replace(
+            "}",
+            r"\}"
+        )
+        .replace(
+            "\n",
+            r"\N"
+        )
     )
 
 
-def seconds_to_ass_time(seconds: float) -> str:
-    """Convierte segundos a formato ASS: H:MM:SS.cc"""
-    total_cs = round(seconds * 100)
+def seconds_to_ass_time(
+    seconds: float,
+) -> str:
+    total_cs = round(
+        seconds * 100
+    )
 
     hours = total_cs // 360000
     remaining = total_cs % 360000
@@ -36,9 +56,8 @@ def seconds_to_ass_time(seconds: float) -> str:
 
 def create_ass_file(
     subtitles_path: Path,
-    ass_path: Path
+    ass_path: Path,
 ) -> None:
-
     if not subtitles_path.exists():
         raise FileNotFoundError(
             f"No existe el archivo de subtítulos: "
@@ -49,53 +68,75 @@ def create_ass_file(
 
     with subtitles_path.open(
         "r",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
 
         for line_number, line in enumerate(
             file,
-            start=1
+            start=1,
         ):
             line = line.strip()
 
             if not line:
                 continue
 
-            parts = line.split("|", 2)
+            parts = line.split(
+                "|",
+                2,
+            )
 
             if len(parts) != 3:
                 raise ValueError(
                     f"Línea inválida en "
                     f"{subtitles_path} "
-                    f"(línea {line_number}): {line}"
+                    f"(línea {line_number}): "
+                    f"{line}"
                 )
 
             start_str, end_str, text = parts
 
             try:
-                start = float(start_str)
-                end = float(end_str)
+                start = float(
+                    start_str
+                )
+                end = float(
+                    end_str
+                )
             except ValueError:
                 raise ValueError(
-                    "Timestamps inválidos en la "
-                    f"línea {line_number}: {line}"
+                    "Timestamps inválidos "
+                    f"en la línea "
+                    f"{line_number}: {line}"
                 )
 
             if end <= start:
                 raise ValueError(
-                    "El final debe ser mayor que el inicio "
-                    f"en la línea {line_number}: {line}"
+                    "El final debe ser mayor "
+                    "que el inicio en la "
+                    f"línea {line_number}: "
+                    f"{line}"
                 )
+
+            text = " ".join(
+                text.split()
+            ).strip()
+
+            if not text:
+                continue
 
             events.append(
                 (
-                    seconds_to_ass_time(start),
-                    seconds_to_ass_time(end),
-                    ass_escape(text)
+                    seconds_to_ass_time(
+                        start
+                    ),
+                    seconds_to_ass_time(
+                        end
+                    ),
+                    ass_escape(text),
                 )
             )
 
-    ass_content = """[Script Info]
+    ass_content = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -103,7 +144,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: TikTok,DejaVu Sans,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,5,2,2,80,80,500,1
+Style: TikTok,DejaVu Sans,{FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,2,2,{MARGIN_L},{MARGIN_R},{MARGIN_V},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -111,29 +152,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     for start, end, text in events:
         ass_content += (
-            f"Dialogue: 0,"
+            "Dialogue: 0,"
             f"{start},"
             f"{end},"
-            f"TikTok,,"
-            f"0,0,0,,"
+            "TikTok,,0,0,0,,"
             f"{text}\n"
         )
 
     with ass_path.open(
         "w",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
-        file.write(ass_content)
+        file.write(
+            ass_content
+        )
 
 
 def burn_subtitles(
     video_path: str,
     subtitles_path: str,
-    output_path: str
+    output_path: str,
 ) -> None:
 
     video = Path(video_path)
-    subtitles = Path(subtitles_path)
+    subtitles = Path(
+        subtitles_path
+    )
     output = Path(output_path)
 
     if not video.exists():
@@ -143,18 +187,26 @@ def burn_subtitles(
 
     if not subtitles.exists():
         raise FileNotFoundError(
-            f"No existen los subtítulos: {subtitles}"
+            "No existen los subtítulos: "
+            f"{subtitles}"
         )
 
-    ass_path = output.with_suffix(".ass")
-
-    print("Creando archivo ASS de subtítulos...")
-    create_ass_file(
-        subtitles,
-        ass_path
+    ass_path = output.with_suffix(
+        ".ass"
     )
 
-    print("Quemando subtítulos en el vídeo...")
+    print(
+        "Creando archivo ASS..."
+    )
+
+    create_ass_file(
+        subtitles,
+        ass_path,
+    )
+
+    print(
+        "Quemando subtítulos..."
+    )
 
     command = [
         "ffmpeg",
@@ -173,19 +225,25 @@ def burn_subtitles(
         "aac",
         "-b:a",
         "192k",
+        "-movflags",
+        "+faststart",
         str(output),
     ]
 
-    subprocess.run(command, check=True)
+    subprocess.run(
+        command,
+        check=True,
+    )
 
     if not output.exists():
         raise RuntimeError(
-            "FFmpeg terminó pero no creó el archivo: "
-            f"{output}"
+            "FFmpeg terminó pero no creó "
+            f"el archivo: {output}"
         )
 
     print(
-        f"Vídeo con subtítulos creado: {output}"
+        "Vídeo con subtítulos creado: "
+        f"{output}"
     )
 
 
@@ -202,5 +260,5 @@ if __name__ == "__main__":
     burn_subtitles(
         sys.argv[1],
         sys.argv[2],
-        sys.argv[3]
+        sys.argv[3],
     )
