@@ -32,10 +32,6 @@ jobs:
           pip install -r requirements.txt
           pip install requests yt-dlp
 
-      # ============================================================
-      # TWITCH AUTHENTICATION
-      # ============================================================
-
       - name: Obtain Twitch App Access Token
         id: twitch-token
         env:
@@ -165,10 +161,6 @@ jobs:
           )
           PY
 
-      # ============================================================
-      # TWITCH USER
-      # ============================================================
-
       - name: Get Twitch broadcaster ID
         id: twitch-user
         env:
@@ -253,10 +245,6 @@ jobs:
           print(f"Broadcaster ID: {user_id}")
           PY
 
-      # ============================================================
-      # GET RECENT TWITCH CLIPS
-      # ============================================================
-
       - name: Get latest Twitch clips
         id: twitch-clips
         env:
@@ -317,8 +305,6 @@ jobs:
               )
               sys.exit(1)
 
-          # Ordenamos nosotros mismos por fecha para asegurarnos
-          # de seleccionar el clip más reciente.
           clips.sort(
               key=lambda clip: clip.get("created_at", ""),
               reverse=True,
@@ -396,10 +382,6 @@ jobs:
               )
           PY
 
-      # ============================================================
-      # DOWNLOAD REAL TWITCH CLIP
-      # ============================================================
-
       - name: Download selected Twitch clip
         env:
           TWITCH_CLIP_URL: ${{ steps.twitch-clips.outputs.clip_url }}
@@ -440,10 +422,6 @@ jobs:
             twitch_clips.json
           if-no-files-found: error
 
-      # ============================================================
-      # WHISPER
-      # ============================================================
-
       - name: Run Whisper
         run: |
           python src/transcribe.py \
@@ -457,10 +435,6 @@ jobs:
       - name: Show Whisper JSON
         run: |
           cat output.json
-
-      # ============================================================
-      # SUBTITLE PROCESSING
-      # ============================================================
 
       - name: Format subtitles
         run: |
@@ -481,10 +455,6 @@ jobs:
       - name: Show corrected subtitles
         run: |
           cat corrected_subtitles.json
-
-      # ============================================================
-      # AI INPUT
-      # ============================================================
 
       - name: Build AI input
         run: |
@@ -521,10 +491,6 @@ jobs:
               )
           "
 
-      # ============================================================
-      # GEMINI
-      # ============================================================
-
       - name: Analyze video with Gemini
         run: |
           python src/gemini_analyzer.py \
@@ -547,10 +513,6 @@ jobs:
         run: |
           cat ai_input.json
 
-      # ============================================================
-      # SCORING
-      # ============================================================
-
       - name: Calculate score
         run: |
           python src/scoring.py \
@@ -560,10 +522,6 @@ jobs:
       - name: Show scored response
         run: |
           cat scored_response.json
-
-      # ============================================================
-      # METADATA
-      # ============================================================
 
       - name: Generate clip metadata
         run: |
@@ -575,23 +533,16 @@ jobs:
         run: |
           cat metadata.json
 
-      # ============================================================
-      # FINAL SUBTITLES
-      # ============================================================
-
       - name: Build final subtitles
         run: |
           python src/ai_response_handler.py \
             ai_response.json \
+            corrected_subtitles.json \
             final_subtitles.txt
 
       - name: Show final subtitles
         run: |
           cat final_subtitles.txt
-
-      # ============================================================
-      # EXTRACT CLIP
-      # ============================================================
 
       - name: Extract clip
         run: |
@@ -609,10 +560,6 @@ jobs:
             -of default=noprint_wrappers=1:nokey=1 \
             clip.mp4
 
-      # ============================================================
-      # VERTICAL VIDEO
-      # ============================================================
-
       - name: Create vertical TikTok video
         run: |
           python src/video_editor.py \
@@ -629,10 +576,6 @@ jobs:
             -of default=noprint_wrappers=1 \
             tiktok_clip.mp4
 
-      # ============================================================
-      # SUBTITLES
-      # ============================================================
-
       - name: Burn subtitles into TikTok video
         run: |
           python src/subtitle_burner.py \
@@ -648,10 +591,6 @@ jobs:
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
             final_tiktok.mp4
-
-      # ============================================================
-      # REVIEW
-      # ============================================================
 
       - name: Create review state
         run: |
@@ -681,10 +620,6 @@ jobs:
         run: |
           cat review_state.json
 
-      # ============================================================
-      # PUBLICATION PACKAGE
-      # ============================================================
-
       - name: Prepare publication package
         if: steps.telegram_review.outputs.status == 'approved'
         run: |
@@ -712,10 +647,6 @@ jobs:
           name: tiktok-publication-package
           path: publication_package/
           if-no-files-found: error
-
-      # ============================================================
-      # TIKTOK
-      # ============================================================
 
       - name: Publish approved clip to TikTok
         if: steps.telegram_review.outputs.status == 'approved'
