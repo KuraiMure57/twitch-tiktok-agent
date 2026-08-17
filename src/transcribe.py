@@ -104,4 +104,3 @@ transcribe_video(
     sys.argv[1],
     sys.argv[2],
 )
-```
