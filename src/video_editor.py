@@ -12,7 +12,7 @@ def run_ffmpeg(input_video: str, output_video: str) -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print("Creando vídeo vertical 9:16 con encuadre amplio...")
+    print("Creando vídeo vertical 9:16 con estilo Twitch...")
 
     command = [
         "ffmpeg",
@@ -22,17 +22,24 @@ def run_ffmpeg(input_video: str, output_video: str) -> None:
 
         "-filter_complex",
         (
-            # Fondo ampliado y desenfocado.
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            # Fondo ampliado, desenfocado y ocupando todo el formato 9:16.
+            "[0:v]"
+            "scale=1080:1920:force_original_aspect_ratio=increase,"
             "crop=1080:1920,"
-            "boxblur=25:10[background];"
+            "boxblur=25:10"
+            "[background];"
 
-            # Vídeo principal completo, manteniendo más contexto.
-            "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease,"
-            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black[foreground];"
+            # Recortar el vídeo principal a formato 1:1.
+            # Se conserva la zona central del gameplay.
+            "[0:v]"
+            "crop=ih:ih:(iw-ih)/2:0,"
+            "scale=1080:1080"
+            "[foreground];"
 
-            # Colocar el vídeo principal sobre el fondo.
-            "[background][foreground]overlay=0:0[v]"
+            # Colocar el gameplay cuadrado en el centro vertical.
+            "[background][foreground]"
+            "overlay=0:420"
+            "[v]"
         ),
 
         "-map",
@@ -61,9 +68,14 @@ def run_ffmpeg(input_video: str, output_video: str) -> None:
     subprocess.run(command, check=True)
 
     if not output_path.exists():
-        raise RuntimeError("FFmpeg no creó el vídeo de salida.")
+        raise RuntimeError(
+            "FFmpeg no creó el vídeo de salida."
+        )
 
-    print(f"Vídeo vertical creado correctamente: {output_path}")
+    print(
+        f"Vídeo vertical creado correctamente: "
+        f"{output_path}"
+    )
 
 
 if __name__ == "__main__":
@@ -74,4 +86,7 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    run_ffmpeg(sys.argv[1], sys.argv[2])
+    run_ffmpeg(
+        sys.argv[1],
+        sys.argv[2]
+    )
