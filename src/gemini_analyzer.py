@@ -5,73 +5,69 @@ import time
 
 from google import genai
 
+
 MODEL = "gemini-3.6-flash"
 
+
 def upload_video(client, video_path):
-print("Subiendo vídeo a Gemini...")
+    print("Subiendo vídeo a Gemini...")
 
-```
-video_file = client.files.upload(
-    file=video_path
-)
-
-while True:
-    file_info = client.files.get(
-        name=video_file.name
+    video_file = client.files.upload(
+        file=video_path
     )
 
-    print(
-        "Estado del vídeo:",
-        file_info.state.name,
-    )
-
-    if file_info.state.name == "ACTIVE":
-        return file_info
-
-    if file_info.state.name == "FAILED":
-        raise RuntimeError(
-            "Gemini no pudo procesar el vídeo."
+    while True:
+        file_info = client.files.get(
+            name=video_file.name
         )
 
-    time.sleep(2)
-```
+        print(
+            "Estado del vídeo:",
+            file_info.state.name,
+        )
+
+        if file_info.state.name == "ACTIVE":
+            return file_info
+
+        if file_info.state.name == "FAILED":
+            raise RuntimeError(
+                "Gemini no pudo procesar el vídeo."
+            )
+
+        time.sleep(2)
+
 
 def analyze(
-video_path,
-input_path,
-output_path,
+    video_path,
+    input_path,
+    output_path,
 ):
-
-```
-api_key = os.environ.get(
-    "GEMINI_API_KEY"
-)
-
-if not api_key:
-    raise RuntimeError(
-        "No se ha encontrado "
-        "GEMINI_API_KEY."
+    api_key = os.environ.get(
+        "GEMINI_API_KEY"
     )
 
-client = genai.Client(
-    api_key=api_key
-)
+    if not api_key:
+        raise RuntimeError(
+            "No se ha encontrado GEMINI_API_KEY."
+        )
 
-with open(
-    input_path,
-    "r",
-    encoding="utf-8",
-) as file:
-    ai_input = json.load(file)
+    client = genai.Client(
+        api_key=api_key
+    )
 
-video_file = upload_video(
-    client,
-    video_path,
-)
+    with open(
+        input_path,
+        "r",
+        encoding="utf-8",
+    ) as file:
+        ai_input = json.load(file)
 
-prompt = f"""
-```
+    video_file = upload_video(
+        client,
+        video_path,
+    )
 
+    prompt = f"""
 Analiza este clip de Twitch.
 
 La transcripción ha sido creada por Whisper
@@ -96,10 +92,10 @@ Solo puedes corregir el campo "text".
 
 Puedes corregir:
 
-* errores evidentes de Whisper;
-* palabras mal reconocidas;
-* mayúsculas;
-* puntuación.
+* errores evidentes de Whisper
+* palabras mal reconocidas
+* mayúsculas
+* puntuación
 
 No inventes palabras.
 
@@ -115,150 +111,143 @@ segmentos.
 Entrada:
 
 {json.dumps(
-ai_input,
-ensure_ascii=False,
-indent=2
+    ai_input,
+    ensure_ascii=False,
+    indent=2,
 )}
 
 Devuelve únicamente JSON válido:
 
 {{
-"language": "es",
-"segments": [
-{{
-"start": 0.000,
-"end": 1.000,
-"text": "texto corregido"
-}}
-],
-"analysis": {{
-"moment_type": "funny",
-"emotion": "surprise",
-"description": "Descripción breve.",
-"is_interesting": true,
-"clip_start": 0.0,
-"clip_end": 0.0,
-"hook": "Hook breve.",
-"title": "Título breve."
-}}
+  "language": "es",
+  "segments": [
+    {{
+      "start": 0.000,
+      "end": 1.000,
+      "text": "texto corregido"
+    }}
+  ],
+  "analysis": {{
+    "moment_type": "funny",
+    "emotion": "surprise",
+    "description": "Descripción breve.",
+    "is_interesting": true,
+    "clip_start": 0.0,
+    "clip_end": 5.0,
+    "hook": "Hook breve.",
+    "title": "Título breve."
+  }}
 }}
 """
 
-````
-print(
-    "Analizando vídeo con Gemini..."
-)
-
-interaction = client.interactions.create(
-    model=MODEL,
-    input=[
-        {
-            "type": "user_input",
-            "content": [
-                {
-                    "type": "text",
-                    "text": prompt,
-                },
-                {
-                    "type": "video",
-                    "uri": video_file.uri,
-                    "mime_type": video_file.mime_type,
-                },
-            ],
-        }
-    ],
-)
-
-response_text = interaction.output_text
-
-if not response_text:
-    raise RuntimeError(
-        "Gemini no devolvió contenido."
+    print(
+        "Analizando vídeo con Gemini..."
     )
 
-try:
-    result = json.loads(
-        response_text
-    )
-except json.JSONDecodeError:
-    cleaned = response_text.strip()
-
-    if cleaned.startswith(
-        "```json"
-    ):
-        cleaned = cleaned[7:]
-
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
-
-    result = json.loads(
-        cleaned.strip()
-    )
-
-original_segments = ai_input.get(
-    "segments",
-    []
-)
-
-returned_segments = result.get(
-    "segments",
-    []
-)
-
-if len(original_segments) != len(
-    returned_segments
-):
-    raise RuntimeError(
-        "Gemini modificó el número de "
-        "segmentos."
+    interaction = client.interactions.create(
+        model=MODEL,
+        input=[
+            {
+                "type": "user_input",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
+                    {
+                        "type": "video",
+                        "uri": video_file.uri,
+                        "mime_type": video_file.mime_type,
+                    },
+                ],
+            }
+        ],
     )
 
-for original, returned in zip(
-    original_segments,
-    returned_segments,
-):
+    response_text = interaction.output_text
 
-    if (
-        float(original["start"])
-        != float(returned["start"])
-        or
-        float(original["end"])
-        != float(returned["end"])
-    ):
+    if not response_text:
         raise RuntimeError(
-            "Gemini modificó timestamps. "
-            "Se rechaza la respuesta."
+            "Gemini no devolvió contenido."
         )
 
-with open(
-    output_path,
-    "w",
-    encoding="utf-8",
-) as file:
-    json.dump(
-        result,
-        file,
-        ensure_ascii=False,
-        indent=2,
+    try:
+        result = json.loads(
+            response_text
+        )
+    except json.JSONDecodeError:
+        cleaned = response_text.strip()
+
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+
+        result = json.loads(
+            cleaned.strip()
+        )
+
+    original_segments = ai_input.get(
+        "segments",
+        [],
     )
 
-print(
-    f"Respuesta guardada en {output_path}"
-)
-````
+    returned_segments = result.get(
+        "segments",
+        [],
+    )
 
-if **name** == "**main**":
-if len(sys.argv) != 4:
-print(
-"Uso: python src/gemini_analyzer.py "
-"video.mp4 ai_input.json "
-"ai_response.json"
-)
-sys.exit(1)
+    if len(original_segments) != len(
+        returned_segments
+    ):
+        raise RuntimeError(
+            "Gemini modificó el número de segmentos."
+        )
 
-```
-analyze(
-    sys.argv[1],
-    sys.argv[2],
-    sys.argv[3],
-)
+    for original, returned in zip(
+        original_segments,
+        returned_segments,
+    ):
+        if (
+            float(original["start"])
+            != float(returned["start"])
+            or
+            float(original["end"])
+            != float(returned["end"])
+        ):
+            raise RuntimeError(
+                "Gemini modificó timestamps. "
+                "Se rechaza la respuesta."
+            )
+
+    with open(
+        output_path,
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            result,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    print(
+        f"Respuesta guardada en {output_path}"
+    )
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print(
+            "Uso: python src/gemini_analyzer.py "
+            "video.mp4 ai_input.json ai_response.json"
+        )
+        sys.exit(1)
+
+    analyze(
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3],
+    )
