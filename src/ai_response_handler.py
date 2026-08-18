@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 
 
+TIMESTAMP_TOLERANCE = 0.05
+
+
 def load_json(path: str) -> dict:
     file_path = Path(path)
 
@@ -19,25 +22,12 @@ def load_json(path: str) -> dict:
 
 
 def normalize_text(text: str) -> str:
-    """
-    Normaliza ligeramente el texto para poder comparar
-    la respuesta de Gemini con la transcripción original.
-
-    No modifica el texto que finalmente se escribe.
-    """
     return " ".join(
         text.strip().lower().split()
     )
 
 
 def punctuation_score(text: str) -> int:
-    """
-    Da una pequeña puntuación a la presencia de signos
-    que aportan información emocional o interrogativa.
-
-    No intenta decidir qué frase es correcta.
-    Solo sirve para evitar perder puntuación útil.
-    """
     score = 0
 
     for char in text:
@@ -51,27 +41,19 @@ def looks_like_emotional_change(
     original: str,
     corrected: str,
 ) -> bool:
-    """
-    Detecta casos en los que Gemini ha cambiado una frase
-    manteniendo aproximadamente el mismo contenido, pero
-    ha eliminado una expresión emocional.
 
-    Ejemplo:
+    original_normalized = normalize_text(
+        original
+    )
 
-        Original:  ¡La Llorona!
-        Gemini:    La Llorona
+    corrected_normalized = normalize_text(
+        corrected
+    )
 
-    En ese caso conservamos la puntuación original.
-
-    También evita considerar como mejora un cambio que
-    transforme una reacción en una pregunta sin suficiente
-    evidencia.
-    """
-
-    original_normalized = normalize_text(original)
-    corrected_normalized = normalize_text(corrected)
-
-    if not original_normalized or not corrected_normalized:
+    if (
+        not original_normalized
+        or not corrected_normalized
+    ):
         return False
 
     original_has_exclamation = (
@@ -94,9 +76,6 @@ def looks_like_emotional_change(
         or "¿" in corrected
     )
 
-    # Si el original es claramente exclamativo y Gemini
-    # lo transforma en pregunta, es una señal de que
-    # puede haber perdido la intención emocional.
     if (
         original_has_exclamation
         and corrected_has_question
@@ -104,33 +83,36 @@ def looks_like_emotional_change(
     ):
         return True
 
-    # Si el original tiene exclamación y Gemini elimina
-    # completamente la puntuación emocional, también
-    # preferimos conservarla.
     if (
         original_has_exclamation
         and not corrected_has_exclamation
         and not corrected_has_question
     ):
+
         original_words = set(
-            original_normalized.replace(
-                "¡", ""
-            ).replace(
-                "!", ""
-            ).split()
+            original_normalized
+            .replace("¡", "")
+            .replace("!", "")
+            .split()
         )
 
         corrected_words = set(
-            corrected_normalized.replace(
-                "¿", ""
-            ).replace(
-                "?", ""
-            ).split()
+            corrected_normalized
+            .replace("¿", "")
+            .replace("?", "")
+            .split()
         )
 
-        if original_words and corrected_words:
-            common_words = original_words.intersection(
-                corrected_words
+        if (
+            original_words
+            and corrected_words
+        ):
+
+            common_words = (
+                original_words
+                .intersection(
+                    corrected_words
+                )
             )
 
             similarity = (
@@ -151,14 +133,6 @@ def restore_emotional_punctuation(
     original: str,
     corrected: str,
 ) -> str:
-    """
-    Conserva la puntuación emocional del original cuando
-    Gemini la ha eliminado o convertido en una pregunta
-    sin cambiar el contenido corregido.
-
-    La corrección textual de Gemini se mantiene siempre
-    que no haya una señal clara de pérdida de intención.
-    """
 
     if not original or not corrected:
         return corrected
@@ -179,140 +153,288 @@ def restore_emotional_punctuation(
         or "¿" in corrected
     )
 
-    # Si Gemini convirtió una exclamación en pregunta,
-    # eliminamos los signos de interrogación y usamos
-    # exclamación.
     if (
         original_has_exclamation
         and corrected_has_question
     ):
-        cleaned = corrected.replace(
-            "¿",
-            "",
-        ).replace(
-            "?",
-            "",
-        ).strip()
+
+        cleaned = (
+            corrected
+            .replace("¿", "")
+            .replace("?", "")
+            .strip()
+        )
 
         if cleaned:
-            return f"¡{cleaned.rstrip('¡!')}!"
+            return (
+                "¡"
+                + cleaned.rstrip("¡!")
+                + "!"
+            )
 
-    # Si simplemente eliminó la exclamación, la recuperamos.
     if (
         original_has_exclamation
         and "!" not in corrected
         and "¡" not in corrected
     ):
+
         cleaned = corrected.strip()
 
         if cleaned:
-            return f"¡{cleaned.rstrip('¡!')}!"
+            return (
+                "¡"
+                + cleaned.rstrip("¡!")
+                + "!"
+            )
 
     return corrected
 
 
 def get_segments(data: dict) -> list:
-    segments = data.get("segments", [])
 
-    if not isinstance(segments, list):
+    segments = data.get(
+        "segments",
+        [],
+    )
+
+    if not isinstance(
+        segments,
+        list,
+    ):
         raise ValueError(
-            "El campo 'segments' debe ser una lista."
+            "El campo 'segments' "
+            "debe ser una lista."
         )
 
     return segments
 
 
-def build_correction_map(
+def find_matching_original_segment(
+    ai_segment: dict,
+    original_segments: list,
+):
+    ai_start = float(
+        ai_segment["start"]
+    )
+
+    ai_end = float(
+        ai_segment["end"]
+    )
+
+    best_match = None
+    best_difference = None
+
+    for original in original_segments:
+
+        original_start = float(
+            original["start"]
+        )
+
+        original_end = float(
+            original["end"]
+        )
+
+        difference = (
+            abs(
+                ai_start
+                - original_start
+            )
+            +
+            abs(
+                ai_end
+                - original_end
+            )
+        )
+
+        if (
+            abs(
+                ai_start
+                - original_start
+            )
+            <= TIMESTAMP_TOLERANCE
+            and
+            abs(
+                ai_end
+                - original_end
+            )
+            <= TIMESTAMP_TOLERANCE
+        ):
+
+            if (
+                best_difference is None
+                or difference
+                < best_difference
+            ):
+
+                best_match = original
+                best_difference = difference
+
+    return best_match
+
+
+def build_final_segments(
     ai_response: dict,
     original_segments: list,
 ) -> list:
-    """
-    Combina Gemini con la transcripción original.
 
-    IMPORTANTE:
-    Los timestamps siempre proceden de los segmentos
-    originales.
-
-    Gemini solo puede aportar el texto.
-    """
-
-    ai_segments = get_segments(ai_response)
-
-    if len(ai_segments) != len(original_segments):
-        raise ValueError(
-            "El número de segmentos de Gemini no coincide "
-            "con el número de segmentos originales. "
-            "No se modificarán los timestamps."
-        )
+    ai_segments = get_segments(
+        ai_response
+    )
 
     result = []
 
-    for index, (
-        original_segment,
-        ai_segment,
-    ) in enumerate(
-        zip(
-            original_segments,
-            ai_segments,
-        ),
+    for ai_index, ai_segment in enumerate(
+        ai_segments,
         start=1,
     ):
-
-        if not isinstance(
-            original_segment,
-            dict,
-        ):
-            raise ValueError(
-                f"Segmento original inválido en posición {index}."
-            )
 
         if not isinstance(
             ai_segment,
             dict,
         ):
             raise ValueError(
-                f"Segmento de Gemini inválido en posición {index}."
+                f"Segmento de Gemini "
+                f"{ai_index} inválido."
             )
 
-        original_text = str(
-            original_segment.get(
-                "text",
-                "",
+        if "start" not in ai_segment:
+            raise ValueError(
+                f"Gemini: falta start "
+                f"en segmento {ai_index}."
             )
-        ).strip()
 
-        ai_text = str(
-            ai_segment.get(
-                "text",
-                "",
+        if "end" not in ai_segment:
+            raise ValueError(
+                f"Gemini: falta end "
+                f"en segmento {ai_index}."
             )
-        ).strip()
 
-        if not ai_text:
-            ai_text = original_text
+        if "text" not in ai_segment:
+            raise ValueError(
+                f"Gemini: falta text "
+                f"en segmento {ai_index}."
+            )
 
-        final_text = restore_emotional_punctuation(
-            original_text,
-            ai_text,
+        ai_start = float(
+            ai_segment["start"]
         )
 
-        # Los timestamps SIEMPRE son los originales.
-        start = original_segment.get("start")
-        end = original_segment.get("end")
+        ai_end = float(
+            ai_segment["end"]
+        )
 
-        if start is None or end is None:
+        ai_text = str(
+            ai_segment["text"]
+        ).strip()
+
+        if ai_end <= ai_start:
             raise ValueError(
-                f"Faltan timestamps en el segmento "
-                f"original {index}."
+                f"Timestamp inválido "
+                f"en segmento {ai_index}."
+            )
+
+        if not ai_text:
+            continue
+
+        original = find_matching_original_segment(
+            ai_segment,
+            original_segments,
+        )
+
+        if original is not None:
+
+            original_text = str(
+                original.get(
+                    "text",
+                    "",
+                )
+            ).strip()
+
+            final_text = (
+                restore_emotional_punctuation(
+                    original_text,
+                    ai_text,
+                )
+            )
+
+            # Para segmentos existentes,
+            # mantenemos SIEMPRE los timestamps
+            # originales.
+            start = float(
+                original["start"]
+            )
+
+            end = float(
+                original["end"]
+            )
+
+        else:
+
+            # Segmento nuevo:
+            # Gemini lo ha añadido porque
+            # Whisper no lo detectó.
+            #
+            # En este caso utilizamos el timestamp
+            # que Gemini ha localizado en el audio.
+            start = ai_start
+            end = ai_end
+            final_text = ai_text
+
+            print(
+                "Nuevo segmento recuperado "
+                "por Gemini: "
+                f"{start:.3f}s - "
+                f"{end:.3f}s | "
+                f"{final_text}"
             )
 
         result.append(
             {
-                "start": float(start),
-                "end": float(end),
+                "start": start,
+                "end": end,
                 "text": final_text,
             }
         )
+
+    result.sort(
+        key=lambda segment: (
+            segment["start"],
+            segment["end"],
+        )
+    )
+
+    return result
+
+
+def remove_duplicate_segments(
+    segments: list,
+) -> list:
+
+    result = []
+
+    seen = set()
+
+    for segment in segments:
+
+        key = (
+            round(
+                float(segment["start"]),
+                3,
+            ),
+            round(
+                float(segment["end"]),
+                3,
+            ),
+            normalize_text(
+                segment["text"]
+            ),
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(segment)
 
     return result
 
@@ -322,7 +444,9 @@ def write_final_subtitles(
     output_path: str,
 ) -> None:
 
-    output_file = Path(output_path)
+    output_file = Path(
+        output_path
+    )
 
     with output_file.open(
         "w",
@@ -330,8 +454,15 @@ def write_final_subtitles(
     ) as file:
 
         for segment in segments:
-            start = segment["start"]
-            end = segment["end"]
+
+            start = float(
+                segment["start"]
+            )
+
+            end = float(
+                segment["end"]
+            )
+
             text = segment["text"]
 
             file.write(
@@ -344,12 +475,15 @@ def write_final_subtitles(
 def main() -> None:
 
     if len(sys.argv) != 4:
+
         print(
-            "Uso: python src/ai_response_handler.py "
+            "Uso: python "
+            "src/ai_response_handler.py "
             "<ai_response.json> "
             "<corrected_subtitles.json> "
             "<final_subtitles.txt>"
         )
+
         sys.exit(1)
 
     ai_response_path = sys.argv[1]
@@ -357,6 +491,7 @@ def main() -> None:
     output_path = sys.argv[3]
 
     try:
+
         ai_response = load_json(
             ai_response_path
         )
@@ -369,9 +504,15 @@ def main() -> None:
             original_data
         )
 
-        final_segments = build_correction_map(
+        final_segments = build_final_segments(
             ai_response,
             original_segments,
+        )
+
+        final_segments = (
+            remove_duplicate_segments(
+                final_segments
+            )
         )
 
         write_final_subtitles(
@@ -379,20 +520,33 @@ def main() -> None:
             output_path,
         )
 
+        print("")
         print(
-            "Subtítulos finales creados utilizando "
-            "los timestamps originales."
+            "Subtítulos finales creados."
         )
 
         print(
-            f"Segmentos procesados: "
+            "Los timestamps existentes "
+            "se mantienen."
+        )
+
+        print(
+            "Los segmentos que Whisper "
+            "omitió pueden ser añadidos "
+            "por Gemini."
+        )
+
+        print(
+            f"Segmentos finales: "
             f"{len(final_segments)}"
         )
 
     except Exception as error:
+
         print(
             f"ERROR: {error}"
         )
+
         sys.exit(1)
 
 
