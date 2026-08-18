@@ -3,11 +3,7 @@ import sys
 
 
 def load_json(path):
-    with open(
-        path,
-        "r",
-        encoding="utf-8",
-    ) as file:
+    with open(path, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
@@ -16,22 +12,14 @@ def save_subtitles(
     timing_data,
     output_file,
 ):
-    ai_segments = ai_data.get(
-        "segments",
-        [],
-    )
+    ai_segments = ai_data.get("segments", [])
+    timing_segments = timing_data.get("segments", [])
 
-    timing_segments = timing_data.get(
-        "segments",
-        [],
-    )
-
-    if len(ai_segments) != len(
-        timing_segments
-    ):
+    if len(ai_segments) != len(timing_segments):
         raise ValueError(
             "El número de segmentos de Gemini "
-            "no coincide con los timestamps originales."
+            "no coincide con los timestamps "
+            "originales."
         )
 
     with open(
@@ -44,22 +32,14 @@ def save_subtitles(
             timing_segments,
             ai_segments,
         ):
-            start = float(
-                timing["start"]
-            )
-
-            end = float(
-                timing["end"]
-            )
+            start = float(timing["start"])
+            end = float(timing["end"])
 
             text = " ".join(
                 str(
                     ai.get(
                         "text",
-                        timing.get(
-                            "text",
-                            "",
-                        ),
+                        timing.get("text", ""),
                     )
                 ).split()
             ).strip()
@@ -83,13 +63,8 @@ if __name__ == "__main__":
             "final_subtitles.txt"
         )
 
-    ai_data = load_json(
-        sys.argv[1]
-    )
-
-    timing_data = load_json(
-        sys.argv[2]
-    )
+    ai_data = load_json(sys.argv[1])
+    timing_data = load_json(sys.argv[2])
 
     save_subtitles(
         ai_data,
