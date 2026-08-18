@@ -112,62 +112,58 @@ Esta es una transcripción inicial generada por Whisper:
     indent=2,
 )}
 
-IMPORTANTE:
+La transcripción de Whisper es solamente una referencia inicial.
+NO debes asumir que es completa ni perfectamente correcta.
 
-La transcripción de Whisper NO es necesariamente correcta ni completa.
+Tu trabajo consiste en escuchar/revisar el audio REAL del vídeo y
+crear una transcripción final fiel a lo que realmente se dice.
 
-Debes revisar el AUDIO REAL del vídeo completo y comparar lo que
-realmente se escucha con la transcripción proporcionada.
+REGLAS DE TRANSCRIPCIÓN:
 
-Tu objetivo es crear una transcripción final fiel al audio.
+1. Revisa TODO el audio del vídeo.
 
-REGLAS OBLIGATORIAS:
+2. Detecta frases o palabras que Whisper haya omitido.
 
-1. Escucha/revisa TODO el audio del vídeo.
+3. Si Whisper ha omitido una frase que realmente se escucha,
+   DEBES añadirla.
 
-2. Si Whisper ha omitido una palabra, frase o intervención que realmente
-   se escucha, DEBES añadirla.
+4. No inventes contenido que no se escuche.
 
-3. No asumas que la transcripción de Whisper es completa.
+5. Mantén los timestamps originales cuando sean correctos.
 
-4. No inventes frases que no se escuchen.
+6. No cambies un timestamp existente solamente porque hayas corregido
+   el texto.
 
-5. Mantén los timestamps originales de Whisper cuando sean correctos.
+7. Si encuentras una frase que Whisper omitió, crea un nuevo segmento
+   con el timestamp correspondiente al audio.
 
-6. No cambies un timestamp existente únicamente porque cambies el texto.
-
-7. Si detectas una frase que Whisper omitió, crea un nuevo segmento con
-   el momento aproximado en el que realmente se escucha.
-
-8. Todos los timestamps son relativos al comienzo del vídeo.
+8. Los timestamps son relativos al comienzo del vídeo.
 
 9. No recortes el vídeo.
 
 10. No desplaces toda la transcripción.
 
-11. El vídeo completo debe analizarse desde el segundo 0 hasta su
-    duración real.
+11. Analiza el vídeo completo desde el segundo 0 hasta su duración real.
 
 12. Corrige errores evidentes de reconocimiento de voz.
 
-13. Mantén el significado real de lo que dice la persona.
+13. Mantén el significado real de las palabras pronunciadas.
 
 14. Corrige la puntuación.
 
-15. Utiliza preguntas cuando el tono sea realmente interrogativo.
+15. Utiliza signos de interrogación cuando corresponda.
 
-16. Utiliza signos de exclamación cuando el tono de voz indique
-    sorpresa, miedo, susto, grito o emoción.
+16. Utiliza signos de exclamación cuando el tono indique sorpresa,
+    miedo, susto, grito o emoción.
 
 17. Por ejemplo, si la persona dice "La Llorona" con sorpresa o miedo,
-    debe escribirse:
+    debe aparecer:
 
     "¡La Llorona!"
 
-18. No añadas signos de exclamación automáticamente.
+18. No añadas signos de exclamación de forma automática.
 
-19. No conviertas frases en otras distintas simplemente para hacerlas
-    sonar más naturales.
+19. No cambies palabras simplemente para hacer la frase más elegante.
 
 20. No resumas.
 
@@ -175,35 +171,37 @@ REGLAS OBLIGATORIAS:
 
 22. No agrupes frases diferentes si eso perjudica la sincronización.
 
-23. No dividas una frase innecesariamente.
+23. No dividas frases innecesariamente.
 
-24. El resultado debe representar lo que realmente se escucha.
+24. El resultado debe representar fielmente el audio.
 
-CASO ESPECIAL:
+EJEMPLO IMPORTANTE:
 
-Si el audio contiene algo parecido a:
+Si el audio realmente dice:
 
 "Abajo no hay ruidos. Me salen arriba los ruidos."
 
-pero Whisper solamente proporciona:
+pero Whisper solamente detectó:
 
 "Me salen arriba los ruidos."
 
-DEBES detectar la primera frase en el audio y añadirla.
+debes añadir:
+
+"Abajo no hay ruidos."
+
+con su timestamp correspondiente.
 
 No debes limitarte a corregir los segmentos existentes.
 
-FORMATO DE RESPUESTA:
+FORMATO OBLIGATORIO:
 
 Devuelve ÚNICAMENTE JSON válido.
 
-No escribas explicaciones.
-
 No escribas Markdown.
-
+No escribas explicaciones fuera del JSON.
 No utilices bloques ```json.
 
-Formato:
+El JSON debe tener EXACTAMENTE esta estructura:
 
 {{
   "language": "{language}",
@@ -213,10 +211,27 @@ Formato:
       "end": 1.0,
       "text": "Texto"
     }}
-  ]
+  ],
+  "analysis": {{
+    "transcription_reviewed": true,
+    "missing_segments_added": true,
+    "timestamps_preserved": true,
+    "notes": "Breve descripción de las correcciones realizadas."
+  }}
 }}
 
-Cada segmento debe contener exactamente:
+REGLAS DEL CAMPO analysis:
+
+- transcription_reviewed debe ser true.
+- missing_segments_added debe ser true si se añadió algún segmento
+  que Whisper había omitido; de lo contrario false.
+- timestamps_preserved debe ser true siempre que los timestamps
+  originales se hayan mantenido cuando eran correctos.
+- notes debe ser una descripción breve.
+
+No añadas otros campos.
+
+Cada segmento debe contener únicamente:
 
 - start
 - end
@@ -224,9 +239,7 @@ Cada segmento debe contener exactamente:
 
 Los timestamps deben ser números.
 
-Ordena todos los segmentos cronológicamente.
-
-No incluyas campos adicionales.
+Ordena los segmentos cronológicamente.
 """
 
     payload = {
@@ -371,9 +384,19 @@ No incluyas campos adicionales.
             "La respuesta de Gemini no es un objeto JSON."
         )
 
+    if "language" not in result:
+        raise RuntimeError(
+            "Falta 'language'."
+        )
+
     if "segments" not in result:
         raise RuntimeError(
-            "La respuesta de Gemini no contiene 'segments'."
+            "Falta 'segments'."
+        )
+
+    if "analysis" not in result:
+        raise RuntimeError(
+            "Falta 'analysis'."
         )
 
     if not isinstance(
@@ -382,6 +405,14 @@ No incluyas campos adicionales.
     ):
         raise RuntimeError(
             "'segments' debe ser una lista."
+        )
+
+    if not isinstance(
+        result["analysis"],
+        dict,
+    ):
+        raise RuntimeError(
+            "'analysis' debe ser un objeto."
         )
 
     validated_segments = []
@@ -456,12 +487,42 @@ No incluyas campos adicionales.
         )
     )
 
+    analysis = result["analysis"]
+
+    validated_analysis = {
+        "transcription_reviewed": bool(
+            analysis.get(
+                "transcription_reviewed",
+                True,
+            )
+        ),
+        "missing_segments_added": bool(
+            analysis.get(
+                "missing_segments_added",
+                False,
+            )
+        ),
+        "timestamps_preserved": bool(
+            analysis.get(
+                "timestamps_preserved",
+                True,
+            )
+        ),
+        "notes": str(
+            analysis.get(
+                "notes",
+                "",
+            )
+        ).strip(),
+    }
+
     result = {
         "language": result.get(
             "language",
             language,
         ),
         "segments": validated_segments,
+        "analysis": validated_analysis,
     }
 
     with open(
@@ -486,6 +547,10 @@ No incluyas campos adicionales.
         f"{len(validated_segments)}"
     )
     print(
+        "Segmentos omitidos por Whisper recuperados: "
+        f"{validated_analysis['missing_segments_added']}"
+    )
+    print(
         f"Archivo: {output_path}"
     )
     print("")
@@ -500,6 +565,12 @@ No incluyas campos adicionales.
             f"{segment['end']:.2f}s | "
             f"{segment['text']}"
         )
+
+    print("")
+    print(
+        "Análisis: "
+        f"{validated_analysis['notes']}"
+    )
 
 
 def main() -> None:
