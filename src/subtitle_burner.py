@@ -3,16 +3,33 @@ import sys
 from pathlib import Path
 
 
-def format_timestamp(seconds: float) -> str:
-    milliseconds = int(round(seconds * 1000))
+def format_timestamp(
+    seconds: float,
+) -> str:
 
-    hours = milliseconds // 3_600_000
+    milliseconds = int(
+        round(seconds * 1000)
+    )
+
+    hours = (
+        milliseconds
+        // 3_600_000
+    )
+
     milliseconds %= 3_600_000
 
-    minutes = milliseconds // 60_000
+    minutes = (
+        milliseconds
+        // 60_000
+    )
+
     milliseconds %= 60_000
 
-    seconds_value = milliseconds // 1_000
+    seconds_value = (
+        milliseconds
+        // 1_000
+    )
+
     milliseconds %= 1_000
 
     return (
@@ -26,20 +43,20 @@ def format_timestamp(seconds: float) -> str:
 def create_srt(
     subtitles_path: str,
     output_path: str,
-    clip_start: float = 0.0,
 ) -> None:
 
-    subtitles_file = Path(subtitles_path)
-    output_file = Path(output_path)
+    subtitles_file = Path(
+        subtitles_path
+    )
+
+    output_file = Path(
+        output_path
+    )
 
     if not subtitles_file.exists():
         raise FileNotFoundError(
-            f"No existe el archivo: {subtitles_file}"
-        )
-
-    if clip_start < 0:
-        raise ValueError(
-            "clip_start no puede ser negativo."
+            f"No existe el archivo: "
+            f"{subtitles_file}"
         )
 
     entries = []
@@ -49,40 +66,49 @@ def create_srt(
         encoding="utf-8",
     ) as file:
 
-        for line in file:
+        for line_number, line in enumerate(
+            file,
+            start=1,
+        ):
+
             line = line.strip()
 
             if not line:
                 continue
 
-            parts = line.split("|", 2)
+            parts = line.split(
+                "|",
+                2,
+            )
 
             if len(parts) != 3:
                 raise ValueError(
-                    "Formato de subtítulo inválido: "
+                    "Formato de subtítulo inválido "
+                    f"en línea {line_number}: "
                     f"{line}"
                 )
 
-            original_start = float(parts[0])
-            original_end = float(parts[1])
+            start = float(
+                parts[0]
+            )
+
+            end = float(
+                parts[1]
+            )
+
             text = parts[2].strip()
 
-            # Convertimos los timestamps del vídeo original
-            # a timestamps relativos al clip.
-            start = original_start - clip_start
-            end = original_end - clip_start
-
-            # Ignorar subtítulos completamente anteriores
-            # al comienzo del clip.
-            if end <= 0:
-                continue
-
-            # Si un subtítulo comienza antes del clip,
-            # hacemos que empiece exactamente en 0.
-            start = max(0.0, start)
+            if start < 0:
+                raise ValueError(
+                    f"Timestamp inicial negativo "
+                    f"en línea {line_number}."
+                )
 
             if end <= start:
-                continue
+                raise ValueError(
+                    f"Timestamp inválido "
+                    f"en línea {line_number}."
+                )
 
             if not text:
                 continue
@@ -95,6 +121,13 @@ def create_srt(
                 )
             )
 
+    entries.sort(
+        key=lambda entry: (
+            entry[0],
+            entry[1],
+        )
+    )
+
     with output_file.open(
         "w",
         encoding="utf-8",
@@ -104,14 +137,18 @@ def create_srt(
             start,
             end,
             text,
-        ) in enumerate(entries, start=1):
+        ) in enumerate(
+            entries,
+            start=1,
+        ):
 
             file.write(
                 f"{index}\n"
             )
 
             file.write(
-                f"{format_timestamp(start)} --> "
+                f"{format_timestamp(start)}"
+                " --> "
                 f"{format_timestamp(end)}\n"
             )
 
@@ -120,16 +157,13 @@ def create_srt(
             )
 
     print(
-        f"SRT generado: {output_file}"
+        f"SRT generado: "
+        f"{output_file}"
     )
 
     print(
-        f"Subtítulos: {len(entries)}"
-    )
-
-    print(
-        f"Desplazamiento aplicado: "
-        f"-{clip_start:.3f}s"
+        f"Subtítulos: "
+        f"{len(entries)}"
     )
 
 
@@ -139,33 +173,51 @@ def burn_subtitles(
     output_path: str,
 ) -> None:
 
-    video_file = Path(video_path)
-    subtitle_file = Path(subtitle_path)
-    output_file = Path(output_path)
+    video_file = Path(
+        video_path
+    )
+
+    subtitle_file = Path(
+        subtitle_path
+    )
+
+    output_file = Path(
+        output_path
+    )
 
     if not video_file.exists():
         raise FileNotFoundError(
-            f"No existe el vídeo: {video_file}"
+            f"No existe el vídeo: "
+            f"{video_file}"
         )
 
     if not subtitle_file.exists():
         raise FileNotFoundError(
-            f"No existe el SRT: {subtitle_file}"
+            f"No existe el SRT: "
+            f"{subtitle_file}"
         )
 
+    # IMPORTANTE:
+    #
+    # Las comas del force_style se escapan
+    # para que FFmpeg/libass no las interprete
+    # como separadores del filtro.
+    #
+    # Se utiliza comilla simple alrededor del valor.
     force_style = (
-        "FontName=Arial\\,"
-        "FontSize=18\\,"
-        "Bold=1\\,"
-        "Alignment=2\\,"
+        "FontName=Arial,"
+        "FontSize=18,"
+        "Bold=1,"
+        "Alignment=2,"
         "MarginV=60"
     )
 
     subtitle_filter = (
         "subtitles="
         + str(subtitle_file)
-        + ":force_style="
+        + ":force_style='"
         + force_style
+        + "'"
     )
 
     command = [
@@ -175,13 +227,26 @@ def burn_subtitles(
         str(video_file),
         "-vf",
         subtitle_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
         "-c:a",
         "copy",
+        "-movflags",
+        "+faststart",
         str(output_file),
     ]
 
     print(
-        "Quemando subtítulos en el vídeo..."
+        "Quemando subtítulos "
+        "en el vídeo..."
+    )
+
+    print(
+        "Comando FFmpeg preparado."
     )
 
     subprocess.run(
@@ -189,20 +254,28 @@ def burn_subtitles(
         check=True,
     )
 
+    if not output_file.exists():
+        raise RuntimeError(
+            "FFmpeg terminó pero no "
+            "creó el vídeo final."
+        )
+
     print(
-        f"Vídeo final creado: {output_file}"
+        f"Vídeo final creado: "
+        f"{output_file}"
     )
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) not in (4, 5):
+    if len(sys.argv) != 4:
+
         print(
-            "Uso: python src/subtitle_burner.py "
+            "Uso: python "
+            "src/subtitle_burner.py "
             "<video.mp4> "
             "<subtitles.txt> "
-            "<output.mp4> "
-            "[clip_start]"
+            "<output.mp4>"
         )
 
         sys.exit(1)
@@ -211,19 +284,15 @@ if __name__ == "__main__":
     subtitles_path = sys.argv[2]
     output_path = sys.argv[3]
 
-    clip_start = 0.0
-
-    if len(sys.argv) == 5:
-        clip_start = float(sys.argv[4])
-
-    srt_path = Path(output_path).with_suffix(
+    srt_path = Path(
+        output_path
+    ).with_suffix(
         ".srt"
     )
 
     create_srt(
         subtitles_path,
         str(srt_path),
-        clip_start,
     )
 
     burn_subtitles(
