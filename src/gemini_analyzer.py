@@ -1,5 +1,7 @@
+import base64
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -23,7 +25,7 @@ RETRY_STATUS_CODES = {
 }
 
 
-def load_json(path: str):
+def load_json(path: str) -> dict:
     file_path = Path(path)
 
     if not file_path.exists():
@@ -39,8 +41,6 @@ def load_json(path: str):
 
 
 def get_video_duration(video_path: str) -> float:
-    import subprocess
-
     result = subprocess.run(
         [
             "ffprobe",
@@ -91,13 +91,13 @@ def build_prompt(
     return f"""
 Analiza TODO el vídeo que se te ha proporcionado.
 
-Duración del vídeo:
+Duración exacta del vídeo:
 {video_duration:.3f} segundos.
 
-La transcripción siguiente procede de Whisper:
+La siguiente transcripción procede de Whisper:
 
 ==============================
-TRANSCRIPCIÓN DE WHISPER
+TRANSCRIPCIÓN WHISPER
 ==============================
 
 {transcript}
@@ -106,58 +106,54 @@ TRANSCRIPCIÓN DE WHISPER
 OBJETIVO
 ==============================
 
-Debes comprobar la transcripción escuchando directamente
-el AUDIO del vídeo.
+Debes escuchar directamente TODO el audio del vídeo y revisar
+la transcripción de Whisper.
 
-Whisper puede haber cometido errores.
+Whisper puede haber cometido errores o haber omitido palabras
+o frases.
 
-MUY IMPORTANTE:
+IMPORTANTE:
 
-1. Escucha TODO el audio del vídeo.
+1. Escucha TODO el audio.
 
-2. No te limites a comparar visualmente el texto de Whisper.
+2. No te limites a corregir ortografía.
 
-3. Si Whisper ha omitido una frase, palabra o expresión que
-realmente se escucha en el audio, debes añadirla.
+3. Detecta frases que Whisper haya omitido completamente.
 
-4. Si Whisper ha escrito una palabra incorrectamente,
-corrígela.
+4. Si escuchas una frase que no aparece en Whisper, añádela.
 
-5. Conserva los timestamps originales siempre que correspondan
-a una frase existente.
+5. Corrige palabras que Whisper haya entendido incorrectamente.
 
-6. Para texto nuevo que Whisper haya omitido, crea timestamps
-aproximados basándote en el momento exacto en el que se escucha.
+6. Conserva los timestamps originales de Whisper cuando el
+segmento sea correcto.
 
-7. NO cambies los timestamps de segmentos que ya sean correctos.
+7. NO cambies innecesariamente los timestamps.
 
-8. No elimines contenido hablado.
+8. Si una frase nueva no existe en Whisper, estima sus
+timestamps según el momento en que realmente se escucha.
 
-9. Mantén el idioma español.
+9. Mantén el español.
 
-10. Conserva expresiones coloquiales, tacos, exclamaciones
-y la forma natural de hablar.
+10. Conserva expresiones coloquiales y tacos.
 
-11. Añade signos de puntuación adecuados.
+11. Añade signos de puntuación naturales.
 
-12. Las exclamaciones y expresiones de sorpresa deben reflejar
-el tono hablado cuando sea evidente.
+12. Si una frase se dice claramente con sorpresa, miedo,
+grito o exclamación, utiliza los signos correspondientes.
 
-Por ejemplo:
+Ejemplo:
 
-"La Llorona"
+La Llorona
 
-si se dice con sorpresa o susto debe escribirse:
+si se dice con sorpresa o susto:
 
-"¡La Llorona!"
+¡La Llorona!
 
-No debes inventar signos si no corresponden al audio.
+13. No inventes contenido que no se escuche.
 
-13. Si una frase está dividida en varios segmentos de Whisper,
-puedes mantener los segmentos separados.
+14. Los segmentos deben estar ordenados cronológicamente.
 
-14. Si detectas una frase que Whisper NO detectó en absoluto,
-debes añadirla.
+15. El contenido debe cubrir TODO lo hablado que sea audible.
 
 ==============================
 FORMATO OBLIGATORIO
@@ -165,13 +161,14 @@ FORMATO OBLIGATORIO
 
 Devuelve EXCLUSIVAMENTE JSON válido.
 
-La estructura debe ser:
+La estructura OBLIGATORIA es:
 
 {{
   "analysis": {{
+    "transcription_reviewed": true,
     "corrections_made": true,
     "missing_segments_added": true,
-    "notes": "Descripción breve de las correcciones realizadas."
+    "notes": "Descripción breve de las correcciones."
   }},
   "language": "es",
   "segments": [
@@ -183,19 +180,23 @@ La estructura debe ser:
   ]
 }}
 
+IMPORTANTE:
+
+El campo:
+
+analysis.transcription_reviewed
+
+ES OBLIGATORIO.
+
+No omitas ningún campo de analysis.
+
 No incluyas markdown.
 
 No incluyas ```json.
 
 No incluyas explicaciones fuera del JSON.
 
-Los timestamps deben estar expresados en segundos.
-
-Los segmentos deben estar ordenados cronológicamente.
-
-El primer segmento debe empezar en el momento correspondiente
-del audio y el último debe terminar en el momento correspondiente
-del audio.
+Los timestamps están expresados en segundos.
 """.strip()
 
 
@@ -206,7 +207,7 @@ def extract_json(text: str) -> dict:
     if text.startswith("```"):
         lines = text.splitlines()
 
-        if lines and lines[0].startswith("```"):
+        if lines and lines[0].strip().startswith("```"):
             lines = lines[1:]
 
         if lines and lines[-1].strip() == "```":
@@ -232,128 +233,215 @@ def extract_json(text: str) -> dict:
         )
 
 
-def validate_basic_structure(data: dict) -> None:
+def normalize_analysis(
+    data: dict,
+) -> dict:
 
-    if not isinstance(data, dict):
-        raise ValueError(
-            "La respuesta de Gemini no es un objeto JSON."
-        )
-
-    if "segments" not in data:
-        raise ValueError(
-            "La respuesta de Gemini no contiene 'segments'."
-        )
+    analysis = data.get(
+        "analysis"
+    )
 
     if not isinstance(
-        data["segments"],
+        analysis,
+        dict,
+    ):
+        analysis = {}
+
+    transcription_reviewed = analysis.get(
+        "transcription_reviewed"
+    )
+
+    if not isinstance(
+        transcription_reviewed,
+        bool,
+    ):
+        transcription_reviewed = True
+
+    corrections_made = analysis.get(
+        "corrections_made"
+    )
+
+    if not isinstance(
+        corrections_made,
+        bool,
+    ):
+        corrections_made = True
+
+    missing_segments_added = analysis.get(
+        "missing_segments_added"
+    )
+
+    if not isinstance(
+        missing_segments_added,
+        bool,
+    ):
+        missing_segments_added = True
+
+    notes = analysis.get(
+        "notes"
+    )
+
+    if not isinstance(
+        notes,
+        str,
+    ):
+        notes = (
+            "La transcripción fue revisada "
+            "directamente contra el audio."
+        )
+
+    data["analysis"] = {
+        "transcription_reviewed": transcription_reviewed,
+        "corrections_made": corrections_made,
+        "missing_segments_added": missing_segments_added,
+        "notes": notes,
+    }
+
+    return data
+
+
+def normalize_segments(
+    data: dict,
+    video_duration: float,
+) -> dict:
+
+    segments = data.get(
+        "segments",
+        [],
+    )
+
+    if not isinstance(
+        segments,
         list,
     ):
         raise ValueError(
             "'segments' debe ser una lista."
         )
 
-    if "analysis" not in data:
-        data["analysis"] = {
-            "corrections_made": True,
-            "missing_segments_added": True,
-            "notes": (
-                "Gemini no devolvió el bloque analysis; "
-                "se añadió automáticamente."
-            ),
-        }
+    cleaned_segments = []
 
+    for segment in segments:
 
-def analyze_video(
-    video_path: str,
-    ai_input_path: str,
-    output_path: str,
-) -> None:
+        if not isinstance(
+            segment,
+            dict,
+        ):
+            continue
 
-    api_key = os.environ.get(
-        "GEMINI_API_KEY"
-    )
+        if (
+            "start" not in segment
+            or "end" not in segment
+            or "text" not in segment
+        ):
+            continue
 
-    if not api_key:
-        raise RuntimeError(
-            "Falta la variable GEMINI_API_KEY."
+        try:
+            start = float(
+                segment["start"]
+            )
+
+            end = float(
+                segment["end"]
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        text = str(
+            segment["text"]
+        ).strip()
+
+        if not text:
+            continue
+
+        start = max(
+            0.0,
+            start,
         )
 
-    if not Path(video_path).exists():
-        raise FileNotFoundError(
-            f"No existe el vídeo: {video_path}"
+        end = min(
+            video_duration,
+            end,
         )
 
-    whisper_data = load_json(
-        ai_input_path
+        if end <= start:
+            continue
+
+        cleaned_segments.append(
+            {
+                "start": round(
+                    start,
+                    3,
+                ),
+                "end": round(
+                    end,
+                    3,
+                ),
+                "text": text,
+            }
+        )
+
+    cleaned_segments.sort(
+        key=lambda item: (
+            item["start"],
+            item["end"],
+        )
     )
 
-    video_duration = get_video_duration(
-        video_path
+    data["segments"] = cleaned_segments
+
+    return data
+
+
+def normalize_response(
+    data: dict,
+    whisper_data: dict,
+    video_duration: float,
+) -> dict:
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        raise ValueError(
+            "La respuesta de Gemini no es un objeto JSON."
+        )
+
+    data = normalize_analysis(
+        data
     )
 
-    print(
-        "=============================="
-    )
-
-    print(
-        "ANALIZANDO AUDIO CON GEMINI"
-    )
-
-    print(
-        "=============================="
-    )
-
-    print(
-        "Gemini revisará TODO el vídeo y "
-        "comprobará la transcripción de Whisper."
-    )
-
-    print(
-        f"Duración del vídeo: "
-        f"{video_duration:.3f}s"
-    )
-
-    prompt = build_prompt(
-        whisper_data,
+    data = normalize_segments(
+        data,
         video_duration,
     )
 
-    with open(
-        video_path,
-        "rb",
-    ) as video_file:
+    language = data.get(
+        "language"
+    )
 
-        video_bytes = video_file.read()
+    if not isinstance(
+        language,
+        str,
+    ) or not language.strip():
 
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": prompt
-                    },
-                    {
-                        "inline_data": {
-                            "mime_type": "video/mp4",
-                            "data": (
-                                __import__(
-                                    "base64"
-                                ).b64encode(
-                                    video_bytes
-                                ).decode(
-                                    "utf-8"
-                                )
-                            ),
-                        },
-                    },
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json",
-        },
-    }
+        language = whisper_data.get(
+            "language",
+            "es",
+        )
+
+    data["language"] = language
+
+    return data
+
+
+def call_gemini(
+    payload: dict,
+    api_key: str,
+) -> dict:
 
     headers = {
         "Content-Type": "application/json"
@@ -421,8 +509,7 @@ def analyze_video(
         if response.status_code in RETRY_STATUS_CODES:
 
             print(
-                "Gemini ha devuelto un error "
-                "temporal."
+                "Gemini ha devuelto un error temporal."
             )
 
             try:
@@ -439,19 +526,12 @@ def analyze_video(
                 )
 
             if attempt >= MAX_RETRIES:
-
-                print(
-                    "Se agotaron todos los "
-                    "intentos de Gemini."
-                )
-
                 response.raise_for_status()
 
             wait_time = 20 * attempt
 
             print(
-                f"Esperando {wait_time} segundos "
-                "antes del siguiente intento..."
+                f"Esperando {wait_time} segundos..."
             )
 
             time.sleep(
@@ -485,24 +565,15 @@ def analyze_video(
 
     if response is None:
         raise RuntimeError(
-            "Gemini no devolvió ninguna respuesta."
+            "Gemini no devolvió respuesta."
         )
 
     try:
-
         response_data = response.json()
-
-    except ValueError:
-
-        print(
+    except ValueError as error:
+        raise ValueError(
             "Gemini no devolvió JSON HTTP válido."
-        )
-
-        print(
-            response.text
-        )
-
-        raise
+        ) from error
 
     try:
 
@@ -528,7 +599,7 @@ def analyze_video(
 
         generated_text = parts[0].get(
             "text",
-            ""
+            "",
         )
 
     except (
@@ -550,110 +621,133 @@ def analyze_video(
         )
 
         raise ValueError(
-            "No se pudo extraer el texto "
-            "generado por Gemini."
+            "No se pudo extraer la respuesta "
+            "de Gemini."
         ) from error
 
     if not generated_text.strip():
-
         raise ValueError(
             "Gemini devolvió una respuesta vacía."
         )
 
-    result = extract_json(
+    return extract_json(
         generated_text
     )
 
-    validate_basic_structure(
-        result
+
+def analyze_video(
+    video_path: str,
+    ai_input_path: str,
+    output_path: str,
+) -> None:
+
+    api_key = os.environ.get(
+        "GEMINI_API_KEY"
     )
 
-    segments = result.get(
-        "segments",
-        [],
+    if not api_key:
+        raise RuntimeError(
+            "Falta GEMINI_API_KEY."
+        )
+
+    video_file = Path(
+        video_path
     )
 
-    cleaned_segments = []
-
-    for segment in segments:
-
-        if not isinstance(
-            segment,
-            dict,
-        ):
-            continue
-
-        if (
-            "start" not in segment
-            or "end" not in segment
-            or "text" not in segment
-        ):
-            continue
-
-        start = float(
-            segment["start"]
+    if not video_file.exists():
+        raise FileNotFoundError(
+            f"No existe el vídeo: {video_file}"
         )
 
-        end = float(
-            segment["end"]
-        )
+    whisper_data = load_json(
+        ai_input_path
+    )
 
-        text = str(
-            segment["text"]
-        ).strip()
+    video_duration = get_video_duration(
+        video_path
+    )
 
-        if not text:
-            continue
+    print(
+        "=============================="
+    )
 
-        if start < 0:
-            start = 0.0
+    print(
+        "ANALIZANDO AUDIO CON GEMINI"
+    )
 
-        if end > video_duration:
-            end = video_duration
+    print(
+        "=============================="
+    )
 
-        if end <= start:
-            continue
+    print(
+        "Gemini revisará TODO el vídeo y "
+        "comprobará la transcripción de Whisper."
+    )
 
-        cleaned_segments.append(
+    print(
+        f"Duración del vídeo: "
+        f"{video_duration:.3f}s"
+    )
+
+    prompt = build_prompt(
+        whisper_data,
+        video_duration,
+    )
+
+    with video_file.open(
+        "rb"
+    ) as file:
+
+        video_bytes = file.read()
+
+    encoded_video = base64.b64encode(
+        video_bytes
+    ).decode(
+        "utf-8"
+    )
+
+    payload = {
+        "contents": [
             {
-                "start": round(
-                    start,
-                    3,
-                ),
-                "end": round(
-                    end,
-                    3,
-                ),
-                "text": text,
+                "parts": [
+                    {
+                        "text": prompt
+                    },
+                    {
+                        "inline_data": {
+                            "mime_type": "video/mp4",
+                            "data": encoded_video,
+                        }
+                    },
+                ]
             }
-        )
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json",
+        },
+    }
 
-    cleaned_segments.sort(
-        key=lambda segment:
-        segment["start"]
+    result = call_gemini(
+        payload,
+        api_key,
     )
 
-    result["segments"] = (
-        cleaned_segments
+    result = normalize_response(
+        result,
+        whisper_data,
+        video_duration,
     )
-
-    if "language" not in result:
-        result["language"] = (
-            whisper_data.get(
-                "language",
-                "es",
-            )
-        )
 
     with open(
         output_path,
         "w",
         encoding="utf-8",
-    ) as output_file:
+    ) as file:
 
         json.dump(
             result,
-            output_file,
+            file,
             ensure_ascii=False,
             indent=2,
         )
@@ -676,7 +770,22 @@ def analyze_video(
 
     print(
         f"Segmentos finales: "
-        f"{len(cleaned_segments)}"
+        f"{len(result['segments'])}"
+    )
+
+    print(
+        "analysis.transcription_reviewed: "
+        f"{result['analysis']['transcription_reviewed']}"
+    )
+
+    print(
+        "analysis.corrections_made: "
+        f"{result['analysis']['corrections_made']}"
+    )
+
+    print(
+        "analysis.missing_segments_added: "
+        f"{result['analysis']['missing_segments_added']}"
     )
 
     print(
