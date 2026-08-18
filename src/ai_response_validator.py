@@ -1,11 +1,21 @@
 import json
 import sys
+from pathlib import Path
 
 
-REQUIRED_ANALYSIS_FIELDS = [
-    "transcription_reviewed",
-    "missing_segments_added",
-    "timestamps_preserved",
+REQUIRED_TOP_LEVEL_FIELDS = {
+    "language",
+    "segments",
+    "analysis",
+}
+
+REQUIRED_SEGMENT_FIELDS = {
+    "start",
+    "end",
+    "text",
+}
+
+REQUIRED_ANALYSIS_FIELDS = {
     "moment_type",
     "emotion",
     "description",
@@ -14,267 +24,305 @@ REQUIRED_ANALYSIS_FIELDS = [
     "clip_end",
     "hook",
     "title",
-]
-
-
-VALID_MOMENT_TYPES = {
-    "fail",
-    "funny",
-    "reaction",
-    "surprise",
-    "clutch",
-    "achievement",
-    "rage",
-    "scare",
-    "interesting",
-    "normal",
 }
 
 
-VALID_EMOTIONS = {
-    "surprise",
-    "disbelief",
-    "joy",
-    "anger",
-    "fear",
-    "excitement",
-    "frustration",
-    "sadness",
-    "neutral",
-}
+def fail(message: str) -> None:
+    raise ValueError(message)
 
 
-def validate_response(path):
-    with open(
-        path,
-        "r",
-        encoding="utf-8",
-    ) as file:
-        data = json.load(file)
+def load_json(path: str) -> dict:
+    file_path = Path(path)
 
-    if not isinstance(
-        data,
-        dict,
-    ):
-        raise ValueError(
-            "La respuesta debe ser un objeto JSON."
+    if not file_path.exists():
+        fail(f"No existe el archivo: {file_path}")
+
+    try:
+        with file_path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+    except json.JSONDecodeError as exc:
+        fail(
+            f"El archivo no contiene JSON válido: "
+            f"{file_path} ({exc})"
         )
 
-    if "language" not in data:
-        raise ValueError(
-            "Falta 'language'."
+    if not isinstance(data, dict):
+        fail("La respuesta JSON debe ser un objeto.")
+
+    return data
+
+
+def validate_segment(
+    segment: dict,
+    index: int,
+) -> None:
+
+    if not isinstance(segment, dict):
+        fail(
+            f"El segmento {index} no es un objeto JSON."
         )
 
-    if "segments" not in data:
-        raise ValueError(
-            "Falta 'segments'."
+    missing = REQUIRED_SEGMENT_FIELDS - segment.keys()
+
+    if missing:
+        fail(
+            f"Faltan campos en segments[{index}]: "
+            f"{', '.join(sorted(missing))}"
         )
 
-    if not isinstance(
-        data["segments"],
-        list,
-    ):
-        raise ValueError(
-            "'segments' debe ser una lista."
+    start = segment["start"]
+    end = segment["end"]
+    text = segment["text"]
+
+    if not isinstance(start, (int, float)):
+        fail(
+            f"segments[{index}].start debe ser numérico."
         )
 
-    if not data["segments"]:
-        raise ValueError(
-            "'segments' no puede estar vacío."
+    if not isinstance(end, (int, float)):
+        fail(
+            f"segments[{index}].end debe ser numérico."
         )
 
-    previous_end = -1.0
+    if start < 0:
+        fail(
+            f"segments[{index}].start no puede ser negativo."
+        )
+
+    if end <= start:
+        fail(
+            f"segments[{index}] tiene timestamps inválidos: "
+            f"{start} -> {end}"
+        )
+
+    if not isinstance(text, str):
+        fail(
+            f"segments[{index}].text debe ser texto."
+        )
+
+    if not text.strip():
+        fail(
+            f"segments[{index}].text no puede estar vacío."
+        )
+
+
+def validate_segments(
+    segments: list,
+) -> None:
+
+    if not isinstance(segments, list):
+        fail("'segments' debe ser una lista.")
+
+    if not segments:
+        fail("'segments' no puede estar vacío.")
+
+    previous_start = None
 
     for index, segment in enumerate(
-        data["segments"]
+        segments
     ):
-
-        if not isinstance(
+        validate_segment(
             segment,
-            dict,
-        ):
-            raise ValueError(
-                f"El segmento {index} no es un objeto."
-            )
+            index,
+        )
 
-        for field in [
-            "start",
-            "end",
-            "text",
-        ]:
+        start = segment["start"]
 
-            if field not in segment:
-                raise ValueError(
-                    f"Falta segments[{index}].{field}"
+        if previous_start is not None:
+            if start < previous_start:
+                fail(
+                    "Los segmentos no están ordenados "
+                    "cronológicamente."
                 )
 
-        if not isinstance(
-            segment["start"],
-            (int, float),
-        ):
-            raise ValueError(
-                f"segments[{index}].start "
-                "debe ser numérico."
-            )
+        previous_start = start
 
-        if not isinstance(
-            segment["end"],
-            (int, float),
-        ):
-            raise ValueError(
-                f"segments[{index}].end "
-                "debe ser numérico."
-            )
 
-        start = float(
-            segment["start"]
-        )
+def validate_analysis(
+    analysis: dict,
+) -> None:
 
-        end = float(
-            segment["end"]
-        )
+    if not isinstance(analysis, dict):
+        fail("'analysis' debe ser un objeto.")
 
-        if start < 0:
-            raise ValueError(
-                f"segments[{index}].start "
-                "no puede ser negativo."
-            )
+    missing = (
+        REQUIRED_ANALYSIS_FIELDS
+        - analysis.keys()
+    )
 
-        if end <= start:
-            raise ValueError(
-                f"segments[{index}] tiene "
-                "timestamps inválidos."
-            )
-
-        if start < previous_end - 0.05:
-            print(
-                f"Advertencia: el segmento {index} "
-                "se solapa con el anterior."
-            )
-
-        previous_end = max(
-            previous_end,
-            end,
-        )
-
-        if not isinstance(
-            segment["text"],
-            str,
-        ):
-            raise ValueError(
-                f"segments[{index}].text "
-                "debe ser texto."
-            )
-
-        if not segment["text"].strip():
-            raise ValueError(
-                f"segments[{index}].text "
-                "no puede estar vacío."
-            )
-
-    if "analysis" not in data:
-        raise ValueError(
-            "Falta 'analysis'."
-        )
-
-    analysis = data["analysis"]
-
-    if not isinstance(
-        analysis,
-        dict,
-    ):
-        raise ValueError(
-            "'analysis' debe ser un objeto."
-        )
-
-    for field in REQUIRED_ANALYSIS_FIELDS:
-
-        if field not in analysis:
-            raise ValueError(
-                f"Falta analysis.{field}"
-            )
-
-    if not isinstance(
-        analysis["transcription_reviewed"],
-        bool,
-    ):
-        raise ValueError(
-            "analysis.transcription_reviewed "
-            "debe ser booleano."
+    if missing:
+        fail(
+            "Faltan campos obligatorios en analysis: "
+            + ", ".join(sorted(missing))
         )
 
     if not isinstance(
-        analysis["missing_segments_added"],
-        bool,
+        analysis["moment_type"],
+        str,
     ):
-        raise ValueError(
-            "analysis.missing_segments_added "
-            "debe ser booleano."
+        fail(
+            "analysis.moment_type debe ser texto."
         )
 
     if not isinstance(
-        analysis["timestamps_preserved"],
-        bool,
+        analysis["emotion"],
+        str,
     ):
-        raise ValueError(
-            "analysis.timestamps_preserved "
-            "debe ser booleano."
-        )
-
-    moment_type = str(
-        analysis["moment_type"]
-    ).lower().strip()
-
-    if moment_type not in VALID_MOMENT_TYPES:
-        raise ValueError(
-            "Tipo de momento no válido: "
-            f"{moment_type}"
-        )
-
-    emotion = str(
-        analysis["emotion"]
-    ).lower().strip()
-
-    if emotion not in VALID_EMOTIONS:
-        raise ValueError(
-            f"Emoción no válida: {emotion}"
+        fail(
+            "analysis.emotion debe ser texto."
         )
 
     if not isinstance(
         analysis["description"],
         str,
     ):
-        raise ValueError(
-            "analysis.description "
-            "debe ser texto."
+        fail(
+            "analysis.description debe ser texto."
+        )
+
+    if not isinstance(
+        analysis["hook"],
+        str,
+    ):
+        fail(
+            "analysis.hook debe ser texto."
+        )
+
+    if not isinstance(
+        analysis["title"],
+        str,
+    ):
+        fail(
+            "analysis.title debe ser texto."
         )
 
     if not isinstance(
         analysis["is_interesting"],
         bool,
     ):
-        raise ValueError(
-            "analysis.is_interesting "
-            "debe ser booleano."
+        fail(
+            "analysis.is_interesting debe ser booleano."
+        )
+
+    clip_start = analysis["clip_start"]
+    clip_end = analysis["clip_end"]
+
+    if not isinstance(
+        clip_start,
+        (int, float),
+    ):
+        fail(
+            "analysis.clip_start debe ser numérico."
         )
 
     if not isinstance(
-        analysis["clip_start"],
+        clip_end,
         (int, float),
     ):
-        raise ValueError(
-            "analysis.clip_start "
-            "debe ser numérico."
+        fail(
+            "analysis.clip_end debe ser numérico."
         )
 
-    if not isinstance(
-        analysis["clip_end"],
-        (int, float),
-    ):
-        raise ValueError(
-            "analysis.clip_end "
-            "debe ser numérico."
+    if clip_start < 0:
+        fail(
+            "analysis.clip_start no puede ser negativo."
         )
+
+    if clip_end <= clip_start:
+        fail(
+            "analysis.clip_end debe ser mayor "
+            "que analysis.clip_start."
+        )
+
+
+def validate_timestamps_against_original(
+    response: dict,
+    original: dict,
+) -> None:
+
+    response_segments = response.get(
+        "segments",
+        [],
+    )
+
+    original_segments = original.get(
+        "segments",
+        [],
+    )
+
+    if not isinstance(
+        original_segments,
+        list,
+    ):
+        fail(
+            "Los subtítulos originales no contienen "
+            "una lista válida de segments."
+        )
+
+    if len(response_segments) != len(
+        original_segments
+    ):
+        fail(
+            "Gemini ha cambiado el número de segmentos. "
+            f"Original: {len(original_segments)} | "
+            f"Respuesta: {len(response_segments)}"
+        )
+
+    tolerance = 0.001
+
+    for index, (
+        original_segment,
+        response_segment,
+    ) in enumerate(
+        zip(
+            original_segments,
+            response_segments,
+        )
+    ):
+
+        original_start = float(
+            original_segment["start"]
+        )
+        original_end = float(
+            original_segment["end"]
+        )
+
+        response_start = float(
+            response_segment["start"]
+        )
+        response_end = float(
+            response_segment["end"]
+        )
+
+        if abs(
+            original_start - response_start
+        ) > tolerance:
+
+            fail(
+                "Gemini ha cambiado el timestamp "
+                f"de inicio del segmento {index}: "
+                f"original={original_start}, "
+                f"respuesta={response_start}"
+            )
+
+        if abs(
+            original_end - response_end
+        ) > tolerance:
+
+            fail(
+                "Gemini ha cambiado el timestamp "
+                f"de final del segmento {index}: "
+                f"original={original_end}, "
+                f"respuesta={response_end}"
+            )
+
+
+def validate_clip_range(
+    response: dict,
+    original: dict,
+) -> None:
+
+    analysis = response["analysis"]
 
     clip_start = float(
         analysis["clip_start"]
@@ -284,69 +332,152 @@ def validate_response(path):
         analysis["clip_end"]
     )
 
-    if clip_start < 0:
-        raise ValueError(
-            "analysis.clip_start "
-            "no puede ser negativo."
+    original_segments = original.get(
+        "segments",
+        [],
+    )
+
+    if not original_segments:
+        return
+
+    original_start = min(
+        float(segment["start"])
+        for segment in original_segments
+    )
+
+    original_end = max(
+        float(segment["end"])
+        for segment in original_segments
+    )
+
+    tolerance = 0.1
+
+    if clip_start < original_start - tolerance:
+        fail(
+            "analysis.clip_start está fuera "
+            "del rango del vídeo."
         )
 
-    if clip_end <= clip_start:
-        raise ValueError(
-            "analysis.clip_end debe ser "
-            "mayor que clip_start."
+    if clip_end > original_end + tolerance:
+        fail(
+            "analysis.clip_end está fuera "
+            "del rango del vídeo."
         )
 
-    for field in [
-        "hook",
-        "title",
-    ]:
 
-        if not isinstance(
-            analysis[field],
-            str,
-        ):
-            raise ValueError(
-                f"analysis.{field} "
-                "debe ser texto."
-            )
-
-        if not analysis[field].strip():
-            raise ValueError(
-                f"analysis.{field} "
-                "no puede estar vacío."
-            )
+def validate_response(
+    response_path: str,
+    original_path: str = "corrected_subtitles.json",
+) -> None:
 
     print(
-        "Respuesta de IA válida."
+        "========================================"
+    )
+    print(
+        "VALIDANDO RESPUESTA DE GEMINI"
+    )
+    print(
+        "========================================"
+    )
+
+    response = load_json(
+        response_path
+    )
+
+    missing = (
+        REQUIRED_TOP_LEVEL_FIELDS
+        - response.keys()
+    )
+
+    if missing:
+        fail(
+            "Faltan campos obligatorios en la "
+            "respuesta de Gemini: "
+            + ", ".join(sorted(missing))
+        )
+
+    language = response["language"]
+
+    if not isinstance(language, str):
+        fail(
+            "'language' debe ser texto."
+        )
+
+    validate_segments(
+        response["segments"]
+    )
+
+    validate_analysis(
+        response["analysis"]
+    )
+
+    original_file = Path(
+        original_path
+    )
+
+    if original_file.exists():
+
+        print(
+            "Comprobando timestamps contra "
+            "corrected_subtitles.json..."
+        )
+
+        original = load_json(
+            original_path
+        )
+
+        validate_timestamps_against_original(
+            response,
+            original,
+        )
+
+        validate_clip_range(
+            response,
+            original,
+        )
+
+        print(
+            "Timestamps originales conservados."
+        )
+
+    else:
+
+        print(
+            "AVISO: No existe "
+            f"{original_path}. "
+            "Se omite la comparación de timestamps."
+        )
+
+    print("")
+    print(
+        "========================================"
+    )
+    print(
+        "RESPUESTA DE GEMINI VÁLIDA"
+    )
+    print(
+        "========================================"
     )
 
     print(
-        f"Segmentos validados: "
-        f"{len(data['segments'])}"
+        f"Idioma: {language}"
     )
 
     print(
-        "Transcripción revisada: "
-        f"{analysis['transcription_reviewed']}"
+        f"Segmentos: "
+        f"{len(response['segments'])}"
+    )
+
+    analysis = response["analysis"]
+
+    print(
+        f"Momento: "
+        f"{analysis['moment_type']}"
     )
 
     print(
-        "Segmentos nuevos añadidos: "
-        f"{analysis['missing_segments_added']}"
-    )
-
-    print(
-        "Timestamps preservados: "
-        f"{analysis['timestamps_preserved']}"
-    )
-
-    print(
-        f"Tipo de momento: "
-        f"{moment_type}"
-    )
-
-    print(
-        f"Emoción: {emotion}"
+        f"Emoción: "
+        f"{analysis['emotion']}"
     )
 
     print(
@@ -355,32 +486,77 @@ def validate_response(path):
     )
 
     print(
-        f"Momento detectado: "
-        f"{clip_start:.2f}s - "
-        f"{clip_end:.2f}s"
+        f"Clip: "
+        f"{analysis['clip_start']:.3f}s -> "
+        f"{analysis['clip_end']:.3f}s"
     )
 
     print(
-        f"Hook: {analysis['hook']}"
+        f"Título: "
+        f"{analysis['title']}"
     )
 
+    print("")
     print(
-        f"Título: {analysis['title']}"
+        "Validación completada correctamente."
     )
-
-    return True
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
+
         print(
-            "Uso: python src/ai_response_validator.py "
+            "Uso:"
+        )
+
+        print(
+            "python src/ai_response_validator.py "
             "ai_response.json"
+        )
+
+        print(
+            "o:"
+        )
+
+        print(
+            "python src/ai_response_validator.py "
+            "ai_response.json "
+            "corrected_subtitles.json"
         )
 
         sys.exit(1)
 
-    validate_response(
-        sys.argv[1]
-    )
+    response_path = sys.argv[1]
+
+    if len(sys.argv) == 3:
+        original_path = sys.argv[2]
+    else:
+        original_path = (
+            "corrected_subtitles.json"
+        )
+
+    try:
+
+        validate_response(
+            response_path,
+            original_path,
+        )
+
+    except Exception as exc:
+
+        print("")
+        print(
+            "========================================"
+        )
+        print(
+            "ERROR DE VALIDACIÓN"
+        )
+        print(
+            "========================================"
+        )
+        print(
+            str(exc)
+        )
+
+        sys.exit(1)
