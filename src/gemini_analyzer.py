@@ -9,6 +9,33 @@ from google import genai
 MODEL = "gemini-3.6-flash"
 
 
+VALID_MOMENT_TYPES = {
+    "fail",
+    "funny",
+    "reaction",
+    "surprise",
+    "scare",
+    "clutch",
+    "achievement",
+    "rage",
+    "interesting",
+    "normal",
+}
+
+
+VALID_EMOTIONS = {
+    "surprise",
+    "disbelief",
+    "joy",
+    "anger",
+    "fear",
+    "excitement",
+    "frustration",
+    "sadness",
+    "neutral",
+}
+
+
 def upload_video(client, video_path):
     print("Subiendo vídeo a Gemini...")
 
@@ -48,7 +75,8 @@ def analyze(
 
     if not api_key:
         raise RuntimeError(
-            "No se ha encontrado GEMINI_API_KEY."
+            "No se ha encontrado "
+            "GEMINI_API_KEY."
         )
 
     client = genai.Client(
@@ -74,7 +102,7 @@ La transcripción ha sido creada por Whisper
 utilizando timestamps por palabra y después
 dividida en segmentos cortos.
 
-IMPORTANTE:
+IMPORTANTE SOBRE LOS SUBTÍTULOS:
 
 Los segmentos proporcionados contienen los
 timestamps correctos.
@@ -92,10 +120,10 @@ Solo puedes corregir el campo "text".
 
 Puedes corregir:
 
-* errores evidentes de Whisper
-* palabras mal reconocidas
-* mayúsculas
-* puntuación
+* errores evidentes de Whisper;
+* palabras mal reconocidas;
+* mayúsculas;
+* puntuación.
 
 No inventes palabras.
 
@@ -108,12 +136,33 @@ La sincronización es prioritaria.
 Devuelve exactamente el mismo número de
 segmentos.
 
+IMPORTANTE SOBRE EL ANÁLISIS:
+
+"moment_type" DEBE ser exactamente uno de:
+
+{", ".join(sorted(VALID_MOMENT_TYPES))}
+
+No inventes nuevos tipos.
+
+"emotion" DEBE ser exactamente una de:
+
+{", ".join(sorted(VALID_EMOTIONS))}
+
+Para sustos, jumpscares o momentos de miedo
+en juegos como Phasmophobia, utiliza:
+
+moment_type = "scare"
+
+y normalmente:
+
+emotion = "fear"
+
 Entrada:
 
 {json.dumps(
     ai_input,
     ensure_ascii=False,
-    indent=2,
+    indent=2
 )}
 
 Devuelve únicamente JSON válido:
@@ -133,7 +182,7 @@ Devuelve únicamente JSON válido:
     "description": "Descripción breve.",
     "is_interesting": true,
     "clip_start": 0.0,
-    "clip_end": 5.0,
+    "clip_end": 0.0,
     "hook": "Hook breve.",
     "title": "Título breve."
   }}
@@ -175,13 +224,18 @@ Devuelve únicamente JSON válido:
         result = json.loads(
             response_text
         )
+
     except json.JSONDecodeError:
         cleaned = response_text.strip()
 
-        if cleaned.startswith("```json"):
+        if cleaned.startswith(
+            "```json"
+        ):
             cleaned = cleaned[7:]
 
-        if cleaned.endswith("```"):
+        if cleaned.endswith(
+            "```"
+        ):
             cleaned = cleaned[:-3]
 
         result = json.loads(
@@ -190,19 +244,20 @@ Devuelve únicamente JSON válido:
 
     original_segments = ai_input.get(
         "segments",
-        [],
+        []
     )
 
     returned_segments = result.get(
         "segments",
-        [],
+        []
     )
 
     if len(original_segments) != len(
         returned_segments
     ):
         raise RuntimeError(
-            "Gemini modificó el número de segmentos."
+            "Gemini modificó el número de "
+            "segmentos."
         )
 
     for original, returned in zip(
@@ -221,6 +276,39 @@ Devuelve únicamente JSON válido:
                 "Se rechaza la respuesta."
             )
 
+    analysis = result.get(
+        "analysis",
+        {}
+    )
+
+    moment_type = str(
+        analysis.get(
+            "moment_type",
+            ""
+        )
+    ).lower()
+
+    if moment_type not in VALID_MOMENT_TYPES:
+        raise RuntimeError(
+            "Gemini devolvió un "
+            f"moment_type no permitido: "
+            f"{moment_type}"
+        )
+
+    emotion = str(
+        analysis.get(
+            "emotion",
+            ""
+        )
+    ).lower()
+
+    if emotion not in VALID_EMOTIONS:
+        raise RuntimeError(
+            "Gemini devolvió una "
+            f"emotion no permitida: "
+            f"{emotion}"
+        )
+
     with open(
         output_path,
         "w",
@@ -237,12 +325,22 @@ Devuelve únicamente JSON válido:
         f"Respuesta guardada en {output_path}"
     )
 
+    print(
+        f"Tipo de momento Gemini: "
+        f"{moment_type}"
+    )
+
+    print(
+        f"Emoción Gemini: {emotion}"
+    )
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
         print(
             "Uso: python src/gemini_analyzer.py "
-            "video.mp4 ai_input.json ai_response.json"
+            "video.mp4 ai_input.json "
+            "ai_response.json"
         )
         sys.exit(1)
 
