@@ -7,6 +7,7 @@ MOMENT_SCORES = {
     "funny": 25,
     "reaction": 25,
     "surprise": 25,
+    "scare": 25,
     "clutch": 30,
     "achievement": 20,
     "rage": 20,
@@ -39,31 +40,50 @@ def calculate_score(data):
         analysis.get("emotion", "neutral")
     ).lower()
 
-    is_interesting = analysis.get("is_interesting", False)
+    is_interesting = analysis.get(
+        "is_interesting",
+        False
+    )
 
     score = 0
     reasons = []
 
-    moment_score = MOMENT_SCORES.get(moment_type, 10)
-    emotion_score = EMOTION_SCORES.get(emotion, 5)
+    moment_score = MOMENT_SCORES.get(
+        moment_type,
+        10
+    )
+
+    emotion_score = EMOTION_SCORES.get(
+        emotion,
+        5
+    )
 
     score += moment_score
     score += emotion_score
 
-    if moment_type in MOMENT_SCORES and moment_score > 0:
+    if (
+        moment_type in MOMENT_SCORES
+        and moment_score > 0
+    ):
         reasons.append(
-            f"El tipo de momento '{moment_type}' tiene potencial para clip."
+            f"El tipo de momento '{moment_type}' "
+            "tiene potencial para clip."
         )
 
-    if emotion in EMOTION_SCORES and emotion_score > 0:
+    if (
+        emotion in EMOTION_SCORES
+        and emotion_score > 0
+    ):
         reasons.append(
-            f"La emoción '{emotion}' aumenta el potencial de entretenimiento."
+            f"La emoción '{emotion}' aumenta "
+            "el potencial de entretenimiento."
         )
 
     if is_interesting is True:
         score += 30
         reasons.append(
-            "Gemini considera que el momento es interesante."
+            "Gemini considera que el momento "
+            "es interesante."
         )
 
     score = min(score, 100)
@@ -71,12 +91,15 @@ def calculate_score(data):
     if score >= 80:
         category = "excellent"
         recommendation = "create_clip"
+
     elif score >= 60:
         category = "good"
         recommendation = "consider_clip"
+
     elif score >= 40:
         category = "possible"
         recommendation = "review"
+
     else:
         category = "weak"
         recommendation = "discard"
@@ -85,7 +108,7 @@ def calculate_score(data):
         "score": score,
         "category": category,
         "recommendation": recommendation,
-        "reasons": reasons
+        "reasons": reasons,
     }
 
 
@@ -100,14 +123,22 @@ def main():
     input_file = sys.argv[1]
     output_file = sys.argv[2]
 
-    with open(input_file, "r", encoding="utf-8") as f:
+    with open(
+        input_file,
+        "r",
+        encoding="utf-8"
+    ) as f:
         data = json.load(f)
 
     result = calculate_score(data)
 
     data["scoring"] = result
 
-    with open(output_file, "w", encoding="utf-8") as f:
+    with open(
+        output_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
         json.dump(
             data,
             f,
@@ -116,11 +147,19 @@ def main():
         )
 
     print("Puntuación calculada correctamente.")
-    print(f"Puntuación: {result['score']}/100")
-    print(f"Categoría: {result['category']}")
-    print(f"Recomendación: {result['recommendation']}")
+    print(
+        f"Puntuación: {result['score']}/100"
+    )
+    print(
+        f"Categoría: {result['category']}"
+    )
+    print(
+        f"Recomendación: "
+        f"{result['recommendation']}"
+    )
 
     print("Motivos:")
+
     for reason in result["reasons"]:
         print(f"- {reason}")
 
