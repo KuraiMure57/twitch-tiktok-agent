@@ -153,22 +153,28 @@ def burn_subtitles(
             f"No existe el SRT: {subtitle_file}"
         )
 
+    force_style = (
+        "FontName=Arial\\,"
+        "FontSize=18\\,"
+        "Bold=1\\,"
+        "Alignment=2\\,"
+        "MarginV=60"
+    )
+
+    subtitle_filter = (
+        "subtitles="
+        + str(subtitle_file)
+        + ":force_style="
+        + force_style
+    )
+
     command = [
         "ffmpeg",
         "-y",
         "-i",
         str(video_file),
         "-vf",
-        (
-            "subtitles="
-            + str(subtitle_file)
-            + ":force_style="
-            "FontName=Arial,"
-            "FontSize=18,"
-            "Bold=1,"
-            "Alignment=2,"
-            "MarginV=60"
-        ),
+        subtitle_filter,
         "-c:a",
         "copy",
         str(output_file),
