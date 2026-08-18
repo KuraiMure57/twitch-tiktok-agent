@@ -22,6 +22,7 @@ VALID_MOMENT_TYPES = {
     "clutch",
     "achievement",
     "rage",
+    "scare",
     "interesting",
     "normal",
 }
