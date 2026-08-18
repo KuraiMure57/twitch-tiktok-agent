@@ -59,20 +59,182 @@ def clean_json_response(text: str) -> dict:
     return json.loads(text)
 
 
+def validate_segments(segments):
+    if not isinstance(segments, list):
+        raise RuntimeError(
+            "'segments' debe ser una lista."
+        )
+
+    validated = []
+
+    for index, segment in enumerate(
+        segments,
+        start=1,
+    ):
+        if not isinstance(segment, dict):
+            raise RuntimeError(
+                f"Segmento {index} inválido."
+            )
+
+        if "start" not in segment:
+            raise RuntimeError(
+                f"Segmento {index} no contiene 'start'."
+            )
+
+        if "end" not in segment:
+            raise RuntimeError(
+                f"Segmento {index} no contiene 'end'."
+            )
+
+        if "text" not in segment:
+            raise RuntimeError(
+                f"Segmento {index} no contiene 'text'."
+            )
+
+        start = float(segment["start"])
+        end = float(segment["end"])
+        text = str(segment["text"]).strip()
+
+        if start < 0:
+            raise RuntimeError(
+                f"Segmento {index}: start negativo."
+            )
+
+        if end <= start:
+            raise RuntimeError(
+                f"Segmento {index}: end <= start."
+            )
+
+        if not text:
+            raise RuntimeError(
+                f"Segmento {index}: texto vacío."
+            )
+
+        validated.append(
+            {
+                "start": start,
+                "end": end,
+                "text": text,
+            }
+        )
+
+    validated.sort(
+        key=lambda segment: (
+            segment["start"],
+            segment["end"],
+        )
+    )
+
+    return validated
+
+
+def validate_analysis(analysis: dict, video_duration: float) -> dict:
+    if not isinstance(analysis, dict):
+        raise RuntimeError(
+            "'analysis' debe ser un objeto."
+        )
+
+    required_fields = [
+        "transcription_reviewed",
+        "missing_segments_added",
+        "timestamps_preserved",
+        "moment_type",
+        "emotion",
+        "description",
+        "is_interesting",
+        "clip_start",
+        "clip_end",
+        "hook",
+        "title",
+    ]
+
+    missing = [
+        field
+        for field in required_fields
+        if field not in analysis
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "Faltan campos en 'analysis': "
+            + ", ".join(missing)
+        )
+
+    clip_start = float(
+        analysis["clip_start"]
+    )
+
+    clip_end = float(
+        analysis["clip_end"]
+    )
+
+    if clip_start < 0:
+        clip_start = 0.0
+
+    if clip_end <= clip_start:
+        clip_end = video_duration
+
+    if clip_end > video_duration:
+        clip_end = video_duration
+
+    if clip_end <= clip_start:
+        raise RuntimeError(
+            "Los timestamps de análisis no son válidos."
+        )
+
+    return {
+        "transcription_reviewed": bool(
+            analysis["transcription_reviewed"]
+        ),
+        "missing_segments_added": bool(
+            analysis["missing_segments_added"]
+        ),
+        "timestamps_preserved": bool(
+            analysis["timestamps_preserved"]
+        ),
+        "moment_type": str(
+            analysis["moment_type"]
+        ).lower().strip(),
+        "emotion": str(
+            analysis["emotion"]
+        ).lower().strip(),
+        "description": str(
+            analysis["description"]
+        ).strip(),
+        "is_interesting": bool(
+            analysis["is_interesting"]
+        ),
+        "clip_start": clip_start,
+        "clip_end": clip_end,
+        "hook": str(
+            analysis["hook"]
+        ).strip(),
+        "title": str(
+            analysis["title"]
+        ).strip(),
+    }
+
+
 def analyze_video(
     video_path: str,
     ai_input_path: str,
     output_path: str,
 ) -> None:
 
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get(
+        "GEMINI_API_KEY"
+    )
 
     if not api_key:
         raise RuntimeError(
             "Falta la variable de entorno GEMINI_API_KEY."
         )
 
-    ai_input = load_json(ai_input_path)
+    ai_input = load_json(
+        ai_input_path
+    )
+
+    video_file = Path(video_path)
 
     video_base64 = load_video_as_base64(
         video_path
@@ -95,16 +257,72 @@ def analyze_video(
             {
                 "start": segment.get("start"),
                 "end": segment.get("end"),
-                "text": segment.get("text", ""),
+                "text": segment.get(
+                    "text",
+                    "",
+                ),
             }
         )
 
+    # ------------------------------------------------------------
+    # OBTENER DURACIÓN REAL DEL VÍDEO
+    # ------------------------------------------------------------
+
+    import subprocess
+
+    duration_result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video_file),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    video_duration = float(
+        duration_result.stdout.strip()
+    )
+
     prompt = f"""
-Analiza cuidadosamente TODO el vídeo completo que se te proporciona.
+Analiza cuidadosamente TODO el vídeo completo.
 
-El idioma hablado es: {language}.
+IDIOMA:
+{language}
 
-Esta es una transcripción inicial generada por Whisper:
+DURACIÓN REAL DEL VÍDEO:
+{video_duration:.3f} segundos
+
+IMPORTANTE:
+
+Este vídeo YA ES un clip de Twitch.
+
+NO debes recortarlo.
+
+NO debes decidir que el vídeo final debe durar menos.
+
+El vídeo completo debe conservarse posteriormente.
+
+Tu trabajo principal es revisar la TRANSCRIPCIÓN del audio.
+
+La transcripción inicial procede de Whisper, pero Whisper puede:
+
+- equivocarse en palabras
+- interpretar mal frases
+- omitir palabras
+- omitir frases completas
+- confundir sonidos o nombres
+- perder pequeñas intervenciones
+
+Por tanto, debes ESCUCHAR Y REVISAR EL AUDIO REAL DEL VÍDEO COMPLETO.
+
+TRANSCRIPCIÓN INICIAL DE WHISPER:
 
 {json.dumps(
     transcription,
@@ -112,96 +330,172 @@ Esta es una transcripción inicial generada por Whisper:
     indent=2,
 )}
 
-La transcripción de Whisper es solamente una referencia inicial.
-NO debes asumir que es completa ni perfectamente correcta.
+============================================================
+REGLAS DE TRANSCRIPCIÓN
+============================================================
 
-Tu trabajo consiste en escuchar/revisar el audio REAL del vídeo y
-crear una transcripción final fiel a lo que realmente se dice.
+1. Revisa TODO el audio desde el segundo 0 hasta
+   aproximadamente {video_duration:.3f} segundos.
 
-REGLAS DE TRANSCRIPCIÓN:
+2. No te limites a corregir los segmentos que ya existen.
 
-1. Revisa TODO el audio del vídeo.
+3. Busca activamente frases que Whisper haya omitido.
 
-2. Detecta frases o palabras que Whisper haya omitido.
-
-3. Si Whisper ha omitido una frase que realmente se escucha,
+4. Si escuchas una frase que Whisper no detectó,
    DEBES añadirla.
 
-4. No inventes contenido que no se escuche.
+5. Ejemplo:
 
-5. Mantén los timestamps originales cuando sean correctos.
+   Audio real:
+   "Abajo no hay ruidos. Me salen arriba los ruidos."
 
-6. No cambies un timestamp existente solamente porque hayas corregido
-   el texto.
+   Whisper:
+   "Me salen arriba los ruidos."
 
-7. Si encuentras una frase que Whisper omitió, crea un nuevo segmento
-   con el timestamp correspondiente al audio.
+   Resultado correcto:
+   "Abajo no hay ruidos."
+   "Me salen arriba los ruidos."
 
-8. Los timestamps son relativos al comienzo del vídeo.
+6. Los timestamps de los segmentos existentes deben mantenerse
+   cuando correspondan correctamente al audio.
 
-9. No recortes el vídeo.
+7. Si una frase nueva fue omitida por Whisper,
+   crea un segmento nuevo con el timestamp correspondiente
+   al momento en que realmente se escucha.
 
-10. No desplaces toda la transcripción.
+8. NO desplaces todos los timestamps.
 
-11. Analiza el vídeo completo desde el segundo 0 hasta su duración real.
+9. NO adelantes ni retrases una frase simplemente para
+   hacer que quede más bonita.
 
-12. Corrige errores evidentes de reconocimiento de voz.
+10. No inventes palabras.
 
-13. Mantén el significado real de las palabras pronunciadas.
+11. No inventes frases.
 
-14. Corrige la puntuación.
+12. No resumas.
 
-15. Utiliza signos de interrogación cuando corresponda.
+13. No elimines contenido hablado.
 
-16. Utiliza signos de exclamación cuando el tono indique sorpresa,
-    miedo, susto, grito o emoción.
+14. Mantén el significado exacto de lo que se dice.
 
-17. Por ejemplo, si la persona dice "La Llorona" con sorpresa o miedo,
-    debe aparecer:
+15. Corrige errores evidentes de Whisper.
 
-    "¡La Llorona!"
+16. Corrige puntuación.
 
-18. No añadas signos de exclamación de forma automática.
+17. Utiliza "¿ ?" cuando realmente sea una pregunta.
 
-19. No cambies palabras simplemente para hacer la frase más elegante.
+18. Utiliza "¡ !" cuando el tono sea de:
 
-20. No resumas.
+   - sorpresa
+   - susto
+   - miedo
+   - emoción
+   - grito
+   - reacción fuerte
 
-21. No elimines contenido hablado.
+19. Por ejemplo:
 
-22. No agrupes frases diferentes si eso perjudica la sincronización.
+   Audio:
+   "La Llorona"
 
-23. No dividas frases innecesariamente.
+   Si se dice con sorpresa o susto:
 
-24. El resultado debe representar fielmente el audio.
+   "¡La Llorona!"
 
-EJEMPLO IMPORTANTE:
+20. NO pongas exclamaciones automáticamente.
+    Deben corresponder al tono.
 
-Si el audio realmente dice:
+21. Mantén separados los segmentos cuando eso ayude
+    a conservar la sincronización.
 
-"Abajo no hay ruidos. Me salen arriba los ruidos."
+22. Puedes crear segmentos adicionales si Whisper
+    omitió contenido.
 
-pero Whisper solamente detectó:
+23. Ordena todos los segmentos cronológicamente.
 
-"Me salen arriba los ruidos."
+24. Todos los timestamps son relativos al comienzo
+    de este vídeo.
 
-debes añadir:
+25. El último segmento nunca debe superar
+    la duración real del vídeo.
 
-"Abajo no hay ruidos."
+============================================================
+ANÁLISIS DEL CLIP
+============================================================
 
-con su timestamp correspondiente.
+Además de revisar la transcripción, analiza el contenido
+para determinar si el clip es interesante.
 
-No debes limitarte a corregir los segmentos existentes.
+Debes devolver:
 
-FORMATO OBLIGATORIO:
+moment_type:
+- fail
+- funny
+- reaction
+- surprise
+- clutch
+- achievement
+- rage
+- scare
+- interesting
+- normal
+
+emotion:
+- surprise
+- disbelief
+- joy
+- anger
+- fear
+- excitement
+- frustration
+- sadness
+- neutral
+
+============================================================
+CLIP_START Y CLIP_END
+============================================================
+
+IMPORTANTE:
+
+Aunque analices qué parte contiene el momento interesante,
+NO significa que debas recortar el vídeo en este proyecto.
+
+El clip_start y clip_end sirven únicamente como METADATOS
+del momento destacado.
+
+El vídeo físico NO será recortado.
+
+El vídeo final debe conservar la duración completa de:
+{video_duration:.3f} segundos.
+
+Si el momento interesante está aproximadamente entre
+los segundos 15 y 22, puedes indicar:
+
+"clip_start": 15.0,
+"clip_end": 22.0
+
+pero el vídeo final seguirá teniendo los
+{video_duration:.3f} segundos completos.
+
+============================================================
+HOOK Y TÍTULO
+============================================================
+
+Crea un hook corto y atractivo basado en el momento.
+
+Crea un título corto para TikTok.
+
+============================================================
+FORMATO OBLIGATORIO
+============================================================
 
 Devuelve ÚNICAMENTE JSON válido.
 
-No escribas Markdown.
-No escribas explicaciones fuera del JSON.
-No utilices bloques ```json.
+No Markdown.
 
-El JSON debe tener EXACTAMENTE esta estructura:
+No explicaciones fuera del JSON.
+
+La estructura DEBE ser:
 
 {{
   "language": "{language}",
@@ -214,32 +508,31 @@ El JSON debe tener EXACTAMENTE esta estructura:
   ],
   "analysis": {{
     "transcription_reviewed": true,
-    "missing_segments_added": true,
+    "missing_segments_added": false,
     "timestamps_preserved": true,
-    "notes": "Breve descripción de las correcciones realizadas."
+    "moment_type": "reaction",
+    "emotion": "surprise",
+    "description": "Descripción breve.",
+    "is_interesting": true,
+    "clip_start": 0.0,
+    "clip_end": 10.0,
+    "hook": "Hook corto",
+    "title": "Título corto"
   }}
 }}
 
-REGLAS DEL CAMPO analysis:
+REGLAS:
 
-- transcription_reviewed debe ser true.
-- missing_segments_added debe ser true si se añadió algún segmento
-  que Whisper había omitido; de lo contrario false.
-- timestamps_preserved debe ser true siempre que los timestamps
-  originales se hayan mantenido cuando eran correctos.
-- notes debe ser una descripción breve.
-
-No añadas otros campos.
-
-Cada segmento debe contener únicamente:
-
-- start
-- end
-- text
-
-Los timestamps deben ser números.
-
-Ordena los segmentos cronológicamente.
+- "segments" debe contener TODOS los segmentos finales.
+- "analysis" debe existir siempre.
+- "transcription_reviewed" debe ser true.
+- "missing_segments_added" debe ser true si añadiste
+  segmentos que Whisper no detectó.
+- "timestamps_preserved" debe ser true cuando
+  hayas conservado los timestamps existentes.
+- clip_start y clip_end son METADATOS.
+- NO utilices clip_start y clip_end para recortar el vídeo.
+- Todos los números deben ser números JSON.
 """
 
     payload = {
@@ -269,8 +562,12 @@ Ordena los segmentos cronológicamente.
     print("ANALIZANDO AUDIO CON GEMINI")
     print("==============================")
     print(
-        "Gemini revisará el vídeo completo "
+        "Gemini revisará TODO el vídeo "
         "y comprobará la transcripción de Whisper."
+    )
+    print(
+        f"Duración del vídeo: "
+        f"{video_duration:.3f}s"
     )
     print("")
 
@@ -280,7 +577,7 @@ Ordena los segmentos cronológicamente.
             "key": api_key,
         },
         headers={
-            "Content-Type": "application/json",
+            "Content-Type": "application/json"
         },
         json=payload,
         timeout=300,
@@ -395,131 +692,38 @@ Ordena los segmentos cronológicamente.
         )
 
     if "analysis" not in result:
+        print("")
+        print(
+            "ERROR: Gemini no devolvió 'analysis'."
+        )
+        print("")
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+
         raise RuntimeError(
-            "Falta 'analysis'."
+            "Gemini no devolvió el bloque 'analysis'."
         )
 
-    if not isinstance(
-        result["segments"],
-        list,
-    ):
-        raise RuntimeError(
-            "'segments' debe ser una lista."
-        )
-
-    if not isinstance(
-        result["analysis"],
-        dict,
-    ):
-        raise RuntimeError(
-            "'analysis' debe ser un objeto."
-        )
-
-    validated_segments = []
-
-    for index, segment in enumerate(
-        result["segments"],
-        start=1,
-    ):
-
-        if not isinstance(
-            segment,
-            dict,
-        ):
-            raise RuntimeError(
-                f"Segmento {index} inválido."
-            )
-
-        if "start" not in segment:
-            raise RuntimeError(
-                f"Segmento {index} no contiene 'start'."
-            )
-
-        if "end" not in segment:
-            raise RuntimeError(
-                f"Segmento {index} no contiene 'end'."
-            )
-
-        if "text" not in segment:
-            raise RuntimeError(
-                f"Segmento {index} no contiene 'text'."
-            )
-
-        start = float(
-            segment["start"]
-        )
-
-        end = float(
-            segment["end"]
-        )
-
-        text = str(
-            segment["text"]
-        ).strip()
-
-        if start < 0:
-            raise RuntimeError(
-                f"Segmento {index}: start negativo."
-            )
-
-        if end <= start:
-            raise RuntimeError(
-                f"Segmento {index}: end <= start."
-            )
-
-        if not text:
-            raise RuntimeError(
-                f"Segmento {index}: texto vacío."
-            )
-
-        validated_segments.append(
-            {
-                "start": start,
-                "end": end,
-                "text": text,
-            }
-        )
-
-    validated_segments.sort(
-        key=lambda segment: (
-            segment["start"],
-            segment["end"],
-        )
+    validated_segments = validate_segments(
+        result["segments"]
     )
 
-    analysis = result["analysis"]
-
-    validated_analysis = {
-        "transcription_reviewed": bool(
-            analysis.get(
-                "transcription_reviewed",
-                True,
-            )
-        ),
-        "missing_segments_added": bool(
-            analysis.get(
-                "missing_segments_added",
-                False,
-            )
-        ),
-        "timestamps_preserved": bool(
-            analysis.get(
-                "timestamps_preserved",
-                True,
-            )
-        ),
-        "notes": str(
-            analysis.get(
-                "notes",
-                "",
-            )
-        ).strip(),
-    }
+    validated_analysis = validate_analysis(
+        result["analysis"],
+        video_duration,
+    )
 
     result = {
-        "language": result.get(
-            "language",
-            language,
+        "language": str(
+            result.get(
+                "language",
+                language,
+            )
         ),
         "segments": validated_segments,
         "analysis": validated_analysis,
@@ -547,8 +751,26 @@ Ordena los segmentos cronológicamente.
         f"{len(validated_segments)}"
     )
     print(
-        "Segmentos omitidos por Whisper recuperados: "
+        "Segmentos omitidos por Whisper "
+        "recuperados: "
         f"{validated_analysis['missing_segments_added']}"
+    )
+    print(
+        f"Momento: "
+        f"{validated_analysis['clip_start']:.2f}s - "
+        f"{validated_analysis['clip_end']:.2f}s"
+    )
+    print(
+        f"Tipo: "
+        f"{validated_analysis['moment_type']}"
+    )
+    print(
+        f"Emoción: "
+        f"{validated_analysis['emotion']}"
+    )
+    print(
+        f"Interesante: "
+        f"{validated_analysis['is_interesting']}"
     )
     print(
         f"Archivo: {output_path}"
@@ -568,13 +790,16 @@ Ordena los segmentos cronológicamente.
 
     print("")
     print(
-        "Análisis: "
-        f"{validated_analysis['notes']}"
+        "Título: "
+        f"{validated_analysis['title']}"
+    )
+    print(
+        "Hook: "
+        f"{validated_analysis['hook']}"
     )
 
 
 def main() -> None:
-
     if len(sys.argv) != 4:
         print(
             "Uso: python src/gemini_analyzer.py "
@@ -597,7 +822,6 @@ def main() -> None:
         )
 
     except Exception as error:
-
         print("")
         print("==============================")
         print("ERROR EN GEMINI")
