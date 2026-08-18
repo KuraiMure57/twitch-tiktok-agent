@@ -206,13 +206,31 @@ jobs:
           import json
           import os
           import sys
+          from datetime import datetime, timedelta, timezone
+
           import requests
+
+          now = datetime.now(timezone.utc)
+          seven_days_ago = now - timedelta(days=7)
+
+          started_at = seven_days_ago.strftime("%Y-%m-%dT%H:%M:%SZ")
+          ended_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          print("")
+          print("========================================")
+          print("BUSCANDO CLIPS DE LOS ÚLTIMOS 7 DÍAS")
+          print("========================================")
+          print(f"Desde: {started_at}")
+          print(f"Hasta: {ended_at}")
+          print("")
 
           response = requests.get(
               "https://api.twitch.tv/helix/clips",
               params={
                   "broadcaster_id": os.environ["TWITCH_BROADCASTER_ID"],
-                  "first": 10,
+                  "started_at": started_at,
+                  "ended_at": ended_at,
+                  "first": 100,
               },
               headers={
                   "Authorization": f"Bearer {os.environ['TWITCH_ACCESS_TOKEN']}",
@@ -236,12 +254,27 @@ jobs:
           clips = data.get("data", [])
 
           if not clips:
-              print("ERROR: No hay clips recientes.")
+              print("")
+              print("========================================")
+              print("NO HAY CLIPS EN LOS ÚLTIMOS 7 DÍAS")
+              print("========================================")
+              print("")
+              print(
+                  "El workflow se detiene para evitar procesar "
+                  "accidentalmente un clip antiguo."
+              )
               sys.exit(1)
+
+          # Ordenamos nosotros por fecha de creación.
+          # Twitch no garantiza que clips[0] sea el más reciente.
+          clips.sort(
+              key=lambda clip: clip.get("created_at", ""),
+              reverse=True,
+          )
 
           print("")
           print("==============================")
-          print("CLIPS REALES DE TWITCH")
+          print(f"CLIPS ENCONTRADOS: {len(clips)}")
           print("==============================")
 
           for index, clip in enumerate(clips, start=1):
@@ -253,8 +286,8 @@ jobs:
               print(f"Vistas: {clip.get('view_count')}")
               print(f"URL: {clip.get('url')}")
 
-          # La API devuelve los clips ordenados por fecha de creación.
-          # Seleccionamos el primero como el más reciente.
+          # El primero ahora sí es el más reciente,
+          # porque nosotros hemos ordenado por created_at.
           clip = clips[0]
 
           with open(
@@ -270,9 +303,9 @@ jobs:
               )
 
           print("")
-          print("==============================")
-          print("CLIP SELECCIONADO")
-          print("==============================")
+          print("========================================")
+          print("CLIP MÁS RECIENTE SELECCIONADO")
+          print("========================================")
           print(f"ID: {clip.get('id')}")
           print(f"Título: {clip.get('title')}")
           print(f"Fecha: {clip.get('created_at')}")
