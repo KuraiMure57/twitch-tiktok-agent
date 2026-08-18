@@ -1,7 +1,7 @@
+import base64
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 import requests
@@ -9,7 +9,7 @@ import requests
 
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    "gemini-3.6-flash:generateContent"
 )
 
 
@@ -29,8 +29,6 @@ def load_json(path: str) -> dict:
 
 
 def load_video_as_base64(video_path: str) -> str:
-    import base64
-
     file_path = Path(video_path)
 
     if not file_path.exists():
@@ -75,7 +73,10 @@ def analyze_video(
         )
 
     ai_input = load_json(ai_input_path)
-    video_base64 = load_video_as_base64(video_path)
+
+    video_base64 = load_video_as_base64(
+        video_path
+    )
 
     language = ai_input.get(
         "language",
@@ -99,11 +100,11 @@ def analyze_video(
         )
 
     prompt = f"""
-Analiza cuidadosamente el vídeo completo que se te proporciona.
+Analiza cuidadosamente TODO el vídeo completo que se te proporciona.
 
 El idioma hablado es: {language}.
 
-A continuación tienes una transcripción inicial generada por Whisper:
+Esta es una transcripción inicial generada por Whisper:
 
 {json.dumps(
     transcription,
@@ -113,101 +114,96 @@ A continuación tienes una transcripción inicial generada por Whisper:
 
 IMPORTANTE:
 
-La transcripción de Whisper NO debe considerarse perfecta.
+La transcripción de Whisper NO es necesariamente correcta ni completa.
 
-Debes escuchar/revisar el audio del vídeo completo y comparar lo que
-realmente se dice con la transcripción proporcionada.
+Debes revisar el AUDIO REAL del vídeo completo y comparar lo que
+realmente se escucha con la transcripción proporcionada.
 
-Tu objetivo es crear una transcripción final fiel al AUDIO REAL.
+Tu objetivo es crear una transcripción final fiel al audio.
 
 REGLAS OBLIGATORIAS:
 
-1. REVISA TODO EL AUDIO DEL VÍDEO.
+1. Escucha/revisa TODO el audio del vídeo.
 
-2. Si Whisper ha omitido una frase, palabra o intervención que realmente
-   se escucha en el vídeo, DEBES AÑADIRLA.
+2. Si Whisper ha omitido una palabra, frase o intervención que realmente
+   se escucha, DEBES añadirla.
 
-3. No elimines frases simplemente porque no aparezcan en Whisper.
+3. No asumas que la transcripción de Whisper es completa.
 
-4. No inventes frases que no se escuchen realmente.
+4. No inventes frases que no se escuchen.
 
-5. Mantén los timestamps originales de Whisper cuando correspondan
-   correctamente al audio.
+5. Mantén los timestamps originales de Whisper cuando sean correctos.
 
-6. Si necesitas añadir una frase que Whisper omitió, crea un timestamp
-   que corresponda al momento en que realmente se escucha.
+6. No cambies un timestamp existente únicamente porque cambies el texto.
 
-7. Los timestamps deben estar expresados en segundos desde el comienzo
-   del vídeo que estás analizando.
+7. Si detectas una frase que Whisper omitió, crea un nuevo segmento con
+   el momento aproximado en el que realmente se escucha.
 
-8. NO cambies los timestamps de un segmento únicamente para modificar
-   su texto.
+8. Todos los timestamps son relativos al comienzo del vídeo.
 
-9. NO desplaces todos los subtítulos.
+9. No recortes el vídeo.
 
-10. NO recortes el vídeo.
+10. No desplaces toda la transcripción.
 
-11. El vídeo completo debe considerarse desde el segundo 0 hasta su
+11. El vídeo completo debe analizarse desde el segundo 0 hasta su
     duración real.
 
 12. Corrige errores evidentes de reconocimiento de voz.
 
-13. Mantén exactamente el significado de lo que realmente dice la
-    persona.
+13. Mantén el significado real de lo que dice la persona.
 
-14. No conviertas una frase en otra distinta simplemente porque parezca
-    más natural.
+14. Corrige la puntuación.
 
-15. Corrige la puntuación.
+15. Utiliza preguntas cuando el tono sea realmente interrogativo.
 
-16. Utiliza signos de interrogación cuando realmente sea una pregunta.
+16. Utiliza signos de exclamación cuando el tono de voz indique
+    sorpresa, miedo, susto, grito o emoción.
 
-17. Utiliza signos de exclamación cuando el tono del audio sea de
-    sorpresa, miedo, grito, emoción o exclamación.
-
-18. Por ejemplo, si la persona dice "La Llorona" con sorpresa o miedo,
-    debe aparecer como:
+17. Por ejemplo, si la persona dice "La Llorona" con sorpresa o miedo,
+    debe escribirse:
 
     "¡La Llorona!"
 
-19. No añadas signos de exclamación automáticamente a todas las frases.
-    Deben corresponder al tono real de la voz.
+18. No añadas signos de exclamación automáticamente.
 
-20. Puedes corregir mayúsculas, minúsculas, comas, puntos y signos de
-    interrogación/exclamación.
+19. No conviertas frases en otras distintas simplemente para hacerlas
+    sonar más naturales.
 
-21. No hagas resúmenes.
+20. No resumas.
 
-22. No agrupes frases diferentes si eso destruye la sincronización.
+21. No elimines contenido hablado.
 
-23. No dividas artificialmente una frase si el audio funciona mejor como
-    un único segmento.
+22. No agrupes frases diferentes si eso perjudica la sincronización.
+
+23. No dividas una frase innecesariamente.
 
 24. El resultado debe representar lo que realmente se escucha.
 
-CASO ESPECIALMENTE IMPORTANTE:
+CASO ESPECIAL:
 
 Si el audio contiene algo parecido a:
 
-"abajo no hay ruidos. Me salen arriba los ruidos."
+"Abajo no hay ruidos. Me salen arriba los ruidos."
 
 pero Whisper solamente proporciona:
 
 "Me salen arriba los ruidos."
 
-DEBES detectar la frase anterior en el audio y añadirla al resultado.
+DEBES detectar la primera frase en el audio y añadirla.
 
-No asumas que todo lo que falta en Whisper no existe.
+No debes limitarte a corregir los segmentos existentes.
 
-RESPUESTA:
+FORMATO DE RESPUESTA:
 
 Devuelve ÚNICAMENTE JSON válido.
 
 No escribas explicaciones.
+
 No escribas Markdown.
+
 No utilices bloques ```json.
 
-Formato obligatorio:
+Formato:
 
 {{
   "language": "{language}",
@@ -228,7 +224,7 @@ Cada segmento debe contener exactamente:
 
 Los timestamps deben ser números.
 
-Ordena los segmentos cronológicamente.
+Ordena todos los segmentos cronológicamente.
 
 No incluyas campos adicionales.
 """
@@ -286,17 +282,20 @@ No incluyas campos adicionales.
         print("Respuesta de Gemini:")
         print(response.text)
         print("")
+
         raise RuntimeError(
             "Gemini devolvió un error HTTP."
         )
 
     try:
         response_data = response.json()
-    except ValueError:
+
+    except ValueError as error:
         print(response.text)
+
         raise RuntimeError(
             "Gemini no devolvió JSON válido."
-        )
+        ) from error
 
     try:
         candidates = response_data["candidates"]
@@ -347,12 +346,16 @@ No incluyas campos adicionales.
         )
 
     try:
-        result = clean_json_response(text)
+        result = clean_json_response(
+            text
+        )
 
     except json.JSONDecodeError as error:
 
         print("")
-        print("Respuesta recibida de Gemini:")
+        print(
+            "Respuesta recibida de Gemini:"
+        )
         print(text)
         print("")
 
@@ -360,7 +363,10 @@ No incluyas campos adicionales.
             "Gemini no devolvió un JSON válido."
         ) from error
 
-    if not isinstance(result, dict):
+    if not isinstance(
+        result,
+        dict,
+    ):
         raise RuntimeError(
             "La respuesta de Gemini no es un objeto JSON."
         )
@@ -385,7 +391,10 @@ No incluyas campos adicionales.
         start=1,
     ):
 
-        if not isinstance(segment, dict):
+        if not isinstance(
+            segment,
+            dict,
+        ):
             raise RuntimeError(
                 f"Segmento {index} inválido."
             )
