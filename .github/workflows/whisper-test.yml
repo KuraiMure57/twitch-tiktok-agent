@@ -348,7 +348,7 @@ jobs:
           print(f"ID: {clip.get('id')}")
           print(f"Título: {clip.get('title')}")
           print(f"Fecha: {clip.get('created_at')}")
-          print(f"Duración: {clip.get('duration')} s")
+          print(f"Duración API: {clip.get('duration')} s")
           print(f"URL: {clip_url}")
           print("")
 
@@ -539,24 +539,27 @@ jobs:
           cat final_subtitles.txt
 
       # ============================================================
-      # EXTRAER CLIP
+      # IMPORTANTE:
+      # twitch_clip.mp4 YA ES EL CLIP FINAL DE TWITCH.
+      #
+      # NO SE VUELVE A RECORTAR.
+      #
+      # El proyecto trabaja con TODO el clip descargado,
+      # manteniendo su duración original.
       # ============================================================
 
-      - name: Extract clip
+      - name: Verify original Twitch clip duration
         run: |
-          python src/clip_extractor.py \
-            twitch_clip.mp4 \
-            scored_response.json \
-            clip.mp4
+          echo "=============================="
+          echo "DURACIÓN DEL CLIP ORIGINAL"
+          echo "=============================="
 
-      - name: Verify clip
-        run: |
-          ls -lh clip.mp4
-
-          ffprobe -v error \
+          duration=$(ffprobe -v error \
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
-            clip.mp4
+            twitch_clip.mp4)
+
+          echo "Duración: ${duration}s"
 
       # ============================================================
       # VÍDEO VERTICAL
@@ -565,13 +568,22 @@ jobs:
       - name: Create vertical TikTok video
         run: |
           python src/video_editor.py \
-            clip.mp4 \
+            twitch_clip.mp4 \
             tiktok_clip.mp4
 
       - name: Verify vertical TikTok video
         run: |
           ls -lh tiktok_clip.mp4
 
+          echo ""
+          echo "Duración del TikTok:"
+          ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            tiktok_clip.mp4
+
+          echo ""
+          echo "Resolución:"
           ffprobe -v error \
             -select_streams v:0 \
             -show_entries stream=width,height \
@@ -593,6 +605,8 @@ jobs:
         run: |
           ls -lh final_tiktok.mp4
 
+          echo ""
+          echo "Duración final:"
           ffprobe -v error \
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
