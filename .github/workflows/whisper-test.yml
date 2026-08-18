@@ -13,13 +13,29 @@ jobs:
     timeout-minutes: 150
 
     steps:
+
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ============================================================
+      # FFmpeg
+      # ============================================================
 
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+
+          echo "FFmpeg instalado:"
+          ffmpeg -version | head -n 1
+
+      # ============================================================
+      # PYTHON
+      # ============================================================
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,7 +50,7 @@ jobs:
           pip install yt-dlp
 
       # ============================================================
-      # TWITCH
+      # TWITCH TOKEN
       # ============================================================
 
       - name: Obtain Twitch App Access Token
@@ -49,28 +65,44 @@ jobs:
           import sys
           import requests
 
-          client_id = os.environ.get("TWITCH_CLIENT_ID")
-          client_secret = os.environ.get("TWITCH_CLIENT_SECRET")
+          client_id = os.environ.get(
+              "TWITCH_CLIENT_ID"
+          )
+
+          client_secret = os.environ.get(
+              "TWITCH_CLIENT_SECRET"
+          )
 
           if not client_id:
-              print("ERROR: Falta TWITCH_CLIENT_ID.")
+              print(
+                  "ERROR: Falta TWITCH_CLIENT_ID."
+              )
               sys.exit(1)
 
           if not client_secret:
-              print("ERROR: Falta TWITCH_CLIENT_SECRET.")
+              print(
+                  "ERROR: Falta TWITCH_CLIENT_SECRET."
+              )
               sys.exit(1)
 
           response = requests.post(
               "https://id.twitch.tv/oauth2/token",
               headers={
-                  "Content-Type": "application/x-www-form-urlencoded"
+                  "Content-Type":
+                  "application/x-www-form-urlencoded"
               },
               data={
                   "client_id": client_id,
                   "client_secret": client_secret,
-                  "grant_type": "client_credentials",
+                  "grant_type":
+                  "client_credentials",
               },
               timeout=30,
+          )
+
+          print(
+              f"Twitch token HTTP: "
+              f"{response.status_code}"
           )
 
           try:
@@ -80,21 +112,49 @@ jobs:
               sys.exit(1)
 
           if response.status_code != 200:
-              print(json.dumps(data, ensure_ascii=False, indent=2))
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
               sys.exit(1)
 
-          access_token = data.get("access_token")
+          access_token = data.get(
+              "access_token"
+          )
 
           if not access_token:
-              print("ERROR: Twitch no devolvió access_token.")
+              print(
+                  "ERROR: Twitch no devolvió "
+                  "access_token."
+              )
               sys.exit(1)
 
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"access_token={access_token}\n")
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+          ) as output:
+              output.write(
+                  f"access_token="
+                  f"{access_token}\n"
+              )
 
-          print("Twitch App Access Token obtenido correctamente.")
-          print(f"Duración: {data.get('expires_in')} segundos.")
+          print(
+              "Twitch App Access Token "
+              "obtenido correctamente."
+          )
+
+          print(
+              f"Duración: "
+              f"{data.get('expires_in')} segundos."
+          )
           PY
+
+      # ============================================================
+      # VALIDAR TOKEN
+      # ============================================================
 
       - name: Validate Twitch App Access Token
         env:
@@ -106,17 +166,23 @@ jobs:
           import sys
           import requests
 
-          token = os.environ.get("TWITCH_ACCESS_TOKEN")
+          token = os.environ.get(
+              "TWITCH_ACCESS_TOKEN"
+          )
 
           response = requests.get(
               "https://id.twitch.tv/oauth2/validate",
               headers={
-                  "Authorization": f"OAuth {token}"
+                  "Authorization":
+                  f"OAuth {token}"
               },
               timeout=30,
           )
 
-          print(f"Twitch /oauth2/validate: HTTP {response.status_code}")
+          print(
+              "Twitch /oauth2/validate: "
+              f"HTTP {response.status_code}"
+          )
 
           try:
               data = response.json()
@@ -125,13 +191,33 @@ jobs:
               sys.exit(1)
 
           if response.status_code != 200:
-              print(json.dumps(data, ensure_ascii=False, indent=2))
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
               sys.exit(1)
 
-          print("Twitch App Access Token válido.")
-          print(f"Client ID: {data.get('client_id')}")
-          print(f"Expira en: {data.get('expires_in')} segundos.")
+          print(
+              "Twitch App Access Token válido."
+          )
+
+          print(
+              f"Client ID: "
+              f"{data.get('client_id')}"
+          )
+
+          print(
+              f"Expira en: "
+              f"{data.get('expires_in')} segundos."
+          )
           PY
+
+      # ============================================================
+      # TWITCH USER
+      # ============================================================
 
       - name: Get Twitch broadcaster ID
         id: twitch-user
@@ -151,13 +237,19 @@ jobs:
                   "login": "kuraimure57"
               },
               headers={
-                  "Authorization": f"Bearer {os.environ['TWITCH_ACCESS_TOKEN']}",
-                  "Client-Id": os.environ["TWITCH_CLIENT_ID"],
+                  "Authorization":
+                  f"Bearer "
+                  f"{os.environ['TWITCH_ACCESS_TOKEN']}",
+                  "Client-Id":
+                  os.environ["TWITCH_CLIENT_ID"],
               },
               timeout=30,
           )
 
-          print(f"Twitch /helix/users: HTTP {response.status_code}")
+          print(
+              f"Twitch /helix/users: "
+              f"HTTP {response.status_code}"
+          )
 
           try:
               data = response.json()
@@ -166,33 +258,70 @@ jobs:
               sys.exit(1)
 
           if response.status_code != 200:
-              print(json.dumps(data, ensure_ascii=False, indent=2))
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
               sys.exit(1)
 
-          users = data.get("data", [])
+          users = data.get(
+              "data",
+              [],
+          )
 
           if not users:
-              print("ERROR: No se encontró @kuraimure57.")
+              print(
+                  "ERROR: No se encontró "
+                  "@kuraimure57."
+              )
               sys.exit(1)
 
           user = users[0]
-          user_id = user.get("id")
+
+          user_id = user.get(
+              "id"
+          )
 
           if not user_id:
-              print("ERROR: Twitch no devolvió el ID.")
+              print(
+                  "ERROR: Twitch no devolvió "
+                  "el ID."
+              )
               sys.exit(1)
 
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"user_id={user_id}\n")
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+          ) as output:
+              output.write(
+                  f"user_id={user_id}\n"
+              )
 
-          print("Cuenta Twitch encontrada.")
-          print(f"Usuario: @{user.get('login')}")
-          print(f"Nombre mostrado: {user.get('display_name')}")
-          print(f"Broadcaster ID: {user_id}")
+          print(
+              "Cuenta Twitch encontrada."
+          )
+
+          print(
+              f"Usuario: "
+              f"@{user.get('login')}"
+          )
+
+          print(
+              f"Nombre mostrado: "
+              f"{user.get('display_name')}"
+          )
+
+          print(
+              f"Broadcaster ID: "
+              f"{user_id}"
+          )
           PY
 
       # ============================================================
-      # OBTENER CLIPS REALES DE TWITCH
+      # CLIPS TWITCH
       # ============================================================
 
       - name: Get latest Twitch clips
@@ -206,40 +335,86 @@ jobs:
           import json
           import os
           import sys
-          from datetime import datetime, timedelta, timezone
+          from datetime import (
+              datetime,
+              timedelta,
+              timezone,
+          )
 
           import requests
 
-          now = datetime.now(timezone.utc)
-          seven_days_ago = now - timedelta(days=7)
+          now = datetime.now(
+              timezone.utc
+          )
 
-          started_at = seven_days_ago.strftime("%Y-%m-%dT%H:%M:%SZ")
-          ended_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+          seven_days_ago = (
+              now
+              - timedelta(days=7)
+          )
+
+          started_at = (
+              seven_days_ago
+              .strftime(
+                  "%Y-%m-%dT%H:%M:%SZ"
+              )
+          )
+
+          ended_at = (
+              now.strftime(
+                  "%Y-%m-%dT%H:%M:%SZ"
+              )
+          )
 
           print("")
-          print("========================================")
-          print("BUSCANDO CLIPS DE LOS ÚLTIMOS 7 DÍAS")
-          print("========================================")
-          print(f"Desde: {started_at}")
-          print(f"Hasta: {ended_at}")
-          print("")
+          print(
+              "========================================"
+          )
+          print(
+              "BUSCANDO CLIPS DE LOS ÚLTIMOS 7 DÍAS"
+          )
+          print(
+              "========================================"
+          )
+
+          print(
+              f"Desde: {started_at}"
+          )
+
+          print(
+              f"Hasta: {ended_at}"
+          )
 
           response = requests.get(
               "https://api.twitch.tv/helix/clips",
               params={
-                  "broadcaster_id": os.environ["TWITCH_BROADCASTER_ID"],
-                  "started_at": started_at,
-                  "ended_at": ended_at,
+                  "broadcaster_id":
+                  os.environ[
+                      "TWITCH_BROADCASTER_ID"
+                  ],
+                  "started_at":
+                  started_at,
+                  "ended_at":
+                  ended_at,
                   "first": 100,
               },
               headers={
-                  "Authorization": f"Bearer {os.environ['TWITCH_ACCESS_TOKEN']}",
-                  "Client-Id": os.environ["TWITCH_CLIENT_ID"],
+                  "Authorization":
+                  "Bearer "
+                  + os.environ[
+                      "TWITCH_ACCESS_TOKEN"
+                  ],
+                  "Client-Id":
+                  os.environ[
+                      "TWITCH_CLIENT_ID"
+                  ],
               },
               timeout=30,
           )
 
-          print(f"Twitch /helix/clips: HTTP {response.status_code}")
+          print(
+              "Twitch /helix/clips: "
+              f"HTTP {response.status_code}"
+          )
 
           try:
               data = response.json()
@@ -248,41 +423,90 @@ jobs:
               sys.exit(1)
 
           if response.status_code != 200:
-              print(json.dumps(data, ensure_ascii=False, indent=2))
-              sys.exit(1)
-
-          clips = data.get("data", [])
-
-          if not clips:
-              print("")
-              print("========================================")
-              print("NO HAY CLIPS EN LOS ÚLTIMOS 7 DÍAS")
-              print("========================================")
-              print("")
               print(
-                  "El workflow se detiene para evitar procesar "
-                  "accidentalmente un clip antiguo."
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
               )
               sys.exit(1)
 
+          clips = data.get(
+              "data",
+              [],
+          )
+
+          if not clips:
+              print("")
+              print(
+                  "NO HAY CLIPS EN LOS "
+                  "ÚLTIMOS 7 DÍAS"
+              )
+              print("")
+              sys.exit(1)
+
           clips.sort(
-              key=lambda clip: clip.get("created_at", ""),
+              key=lambda clip:
+              clip.get(
+                  "created_at",
+                  "",
+              ),
               reverse=True,
           )
 
           print("")
-          print("==============================")
-          print(f"CLIPS ENCONTRADOS: {len(clips)}")
-          print("==============================")
+          print(
+              "=============================="
+          )
 
-          for index, clip in enumerate(clips, start=1):
-              print(f"\n--- Clip {index} ---")
-              print(f"ID: {clip.get('id')}")
-              print(f"Título: {clip.get('title')}")
-              print(f"Fecha: {clip.get('created_at')}")
-              print(f"Duración: {clip.get('duration')} s")
-              print(f"Vistas: {clip.get('view_count')}")
-              print(f"URL: {clip.get('url')}")
+          print(
+              f"CLIPS ENCONTRADOS: "
+              f"{len(clips)}"
+          )
+
+          print(
+              "=============================="
+          )
+
+          for index, clip in enumerate(
+              clips,
+              start=1,
+          ):
+
+              print(
+                  f"\n--- Clip {index} ---"
+              )
+
+              print(
+                  f"ID: "
+                  f"{clip.get('id')}"
+              )
+
+              print(
+                  f"Título: "
+                  f"{clip.get('title')}"
+              )
+
+              print(
+                  f"Fecha: "
+                  f"{clip.get('created_at')}"
+              )
+
+              print(
+                  f"Duración API: "
+                  f"{clip.get('duration')} s"
+              )
+
+              print(
+                  f"Vistas: "
+                  f"{clip.get('view_count')}"
+              )
+
+              print(
+                  f"URL: "
+                  f"{clip.get('url')}"
+              )
 
           clip = clips[0]
 
@@ -290,24 +514,36 @@ jobs:
               "selected_twitch_clip.json",
               "w",
               encoding="utf-8",
-          ) as f:
+          ) as file:
+
               json.dump(
                   clip,
-                  f,
+                  file,
                   ensure_ascii=False,
                   indent=2,
               )
 
           print("")
-          print("========================================")
-          print("CLIP MÁS RECIENTE SELECCIONADO")
-          print("========================================")
-          print(f"ID: {clip.get('id')}")
-          print(f"Título: {clip.get('title')}")
-          print(f"Fecha: {clip.get('created_at')}")
-          print(f"Duración: {clip.get('duration')} s")
-          print(f"Vistas: {clip.get('view_count')}")
-          print(f"URL: {clip.get('url')}")
+          print(
+              "CLIP MÁS RECIENTE SELECCIONADO"
+          )
+
+          print(
+              f"ID: {clip.get('id')}"
+          )
+
+          print(
+              f"Título: {clip.get('title')}"
+          )
+
+          print(
+              f"Duración API: "
+              f"{clip.get('duration')} s"
+          )
+
+          print(
+              f"URL: {clip.get('url')}"
+          )
           PY
 
       - name: Upload Twitch clips information
@@ -318,7 +554,7 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # DESCARGAR CLIP REAL DE TWITCH
+      # DESCARGAR CLIP
       # ============================================================
 
       - name: Download selected Twitch clip
@@ -332,25 +568,47 @@ jobs:
               "selected_twitch_clip.json",
               "r",
               encoding="utf-8",
-          ) as f:
-              clip = json.load(f)
+          ) as file:
+              clip = json.load(file)
 
-          clip_url = clip.get("url")
+          clip_url = clip.get(
+              "url"
+          )
 
           if not clip_url:
-              print("ERROR: Twitch no devolvió la URL del clip.")
+              print(
+                  "ERROR: Twitch no devolvió "
+                  "la URL del clip."
+              )
               sys.exit(1)
 
           print("")
-          print("==============================")
-          print("DESCARGANDO CLIP DE TWITCH")
-          print("==============================")
-          print(f"ID: {clip.get('id')}")
-          print(f"Título: {clip.get('title')}")
-          print(f"Fecha: {clip.get('created_at')}")
-          print(f"Duración API: {clip.get('duration')} s")
-          print(f"URL: {clip_url}")
-          print("")
+          print(
+              "=============================="
+          )
+          print(
+              "DESCARGANDO CLIP DE TWITCH"
+          )
+          print(
+              "=============================="
+          )
+
+          print(
+              f"ID: {clip.get('id')}"
+          )
+
+          print(
+              f"Título: {clip.get('title')}"
+          )
+
+          print(
+              f"Duración API: "
+              f"{clip.get('duration')} s"
+          )
+
+          print(
+              f"URL: {clip_url}"
+          )
 
           subprocess.run(
               [
@@ -367,28 +625,21 @@ jobs:
           )
           PY
 
-          echo ""
-          echo "=============================="
-          echo "VERIFICANDO CLIP DESCARGADO"
-          echo "=============================="
-
           if [ ! -f twitch_clip.mp4 ]; then
             echo "ERROR: No se ha creado twitch_clip.mp4"
-            echo "Archivos encontrados:"
             ls -lah
             exit 1
           fi
 
-          echo "Clip descargado correctamente:"
+          echo ""
+          echo "CLIP DESCARGADO:"
           ls -lh twitch_clip.mp4
 
           echo ""
-          echo "Información del vídeo:"
-
+          echo "DURACIÓN REAL:"
           ffprobe -v error \
             -show_entries format=duration \
-            -show_entries stream=codec_name,width,height,r_frame_rate \
-            -of default=noprint_wrappers=1 \
+            -of default=noprint_wrappers=1:nokey=1 \
             twitch_clip.mp4
 
       - name: Upload downloaded Twitch clip
@@ -404,18 +655,26 @@ jobs:
 
       - name: Run Whisper
         run: |
-          python src/transcribe.py twitch_clip.mp4 output.txt
+          python src/transcribe.py \
+            twitch_clip.mp4 \
+            output.txt
 
       - name: Show Whisper output
         run: |
+          echo "=============================="
+          echo "WHISPER OUTPUT"
+          echo "=============================="
           cat output.txt
 
       - name: Show Whisper JSON
         run: |
+          echo "=============================="
+          echo "WHISPER JSON"
+          echo "=============================="
           cat output.json
 
       # ============================================================
-      # SUBTÍTULOS BASADOS EN PALABRAS
+      # FORMATEAR SUBTÍTULOS
       # ============================================================
 
       - name: Format subtitles
@@ -428,6 +687,10 @@ jobs:
         run: |
           cat formatted_subtitles.json
 
+      # ============================================================
+      # CORREGIR FORMATO
+      # ============================================================
+
       - name: Correct subtitles
         run: |
           python src/subtitle_corrector.py \
@@ -439,7 +702,7 @@ jobs:
           cat corrected_subtitles.json
 
       # ============================================================
-      # GEMINI
+      # CREAR INPUT PARA GEMINI
       # ============================================================
 
       - name: Build AI input
@@ -451,17 +714,52 @@ jobs:
               "corrected_subtitles.json",
               "r",
               encoding="utf-8",
-          ) as f:
-              subtitles = json.load(f)
+          ) as file:
+              subtitles = json.load(file)
+
+          if not isinstance(
+              subtitles,
+              dict,
+          ):
+              raise ValueError(
+                  "corrected_subtitles.json "
+                  "debe ser un objeto JSON."
+              )
+
+          segments = subtitles.get(
+              "segments",
+              [],
+          )
+
+          if not isinstance(
+              segments,
+              list,
+          ):
+              raise ValueError(
+                  "'segments' debe ser una lista."
+              )
 
           ai_input = {
-              "language": subtitles.get("language", "es"),
-              "segments": subtitles.get("segments", []),
+              "language":
+                  subtitles.get(
+                      "language",
+                      "es",
+                  ),
+              "segments":
+                  segments,
               "instructions": {
-                  "correct_transcription": True,
-                  "preserve_timestamps": True,
-                  "never_change_timestamps": True,
-                  "return_only_valid_json": True,
+                  "review_full_audio":
+                      True,
+                  "correct_transcription":
+                      True,
+                  "detect_missing_segments":
+                      True,
+                  "preserve_timestamps":
+                      True,
+                  "never_shift_existing_timestamps":
+                      True,
+                  "return_only_valid_json":
+                      True,
               },
           }
 
@@ -469,14 +767,32 @@ jobs:
               "ai_input.json",
               "w",
               encoding="utf-8",
-          ) as f:
+          ) as file:
+
               json.dump(
                   ai_input,
-                  f,
+                  file,
                   ensure_ascii=False,
                   indent=2,
               )
+
+          print(
+              "ai_input.json creado."
+          )
+
+          print(
+              f"Segmentos enviados a Gemini: "
+              f"{len(segments)}"
+          )
           PY
+
+      - name: Show AI input
+        run: |
+          cat ai_input.json
+
+      # ============================================================
+      # GEMINI
+      # ============================================================
 
       - name: Analyze video with Gemini
         run: |
@@ -491,16 +807,17 @@ jobs:
         run: |
           cat ai_response.json
 
+      # ============================================================
+      # VALIDAR GEMINI
+      # ============================================================
+
       - name: Validate AI response
         run: |
-          python src/ai_response_validator.py ai_response.json
-
-      - name: Show AI input
-        run: |
-          cat ai_input.json
+          python src/ai_response_validator.py \
+            ai_response.json
 
       # ============================================================
-      # SCORING / METADATA
+      # SCORING
       # ============================================================
 
       - name: Calculate score
@@ -512,6 +829,10 @@ jobs:
       - name: Show scored response
         run: |
           cat scored_response.json
+
+      # ============================================================
+      # METADATA
+      # ============================================================
 
       - name: Generate clip metadata
         run: |
@@ -536,16 +857,19 @@ jobs:
 
       - name: Show final subtitles
         run: |
+          echo "=============================="
+          echo "SUBTÍTULOS FINALES"
+          echo "=============================="
           cat final_subtitles.txt
 
       # ============================================================
-      # IMPORTANTE:
-      # twitch_clip.mp4 YA ES EL CLIP FINAL DE TWITCH.
+      # IMPORTANTE
       #
-      # NO SE VUELVE A RECORTAR.
+      # twitch_clip.mp4 YA ES EL CLIP FINAL.
       #
-      # El proyecto trabaja con TODO el clip descargado,
-      # manteniendo su duración original.
+      # NO se ejecuta clip_extractor.py.
+      #
+      # No se recorta.
       # ============================================================
 
       - name: Verify original Twitch clip duration
@@ -554,12 +878,13 @@ jobs:
           echo "DURACIÓN DEL CLIP ORIGINAL"
           echo "=============================="
 
-          duration=$(ffprobe -v error \
+          duration=$(ffprobe \
+            -v error \
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
             twitch_clip.mp4)
 
-          echo "Duración: ${duration}s"
+          echo "Duración original: ${duration}s"
 
       # ============================================================
       # VÍDEO VERTICAL
@@ -573,25 +898,31 @@ jobs:
 
       - name: Verify vertical TikTok video
         run: |
+          echo "=============================="
+          echo "VÍDEO VERTICAL"
+          echo "=============================="
+
           ls -lh tiktok_clip.mp4
 
           echo ""
-          echo "Duración del TikTok:"
-          ffprobe -v error \
+          echo "Duración:"
+          ffprobe \
+            -v error \
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
             tiktok_clip.mp4
 
           echo ""
           echo "Resolución:"
-          ffprobe -v error \
+          ffprobe \
+            -v error \
             -select_streams v:0 \
             -show_entries stream=width,height \
             -of default=noprint_wrappers=1 \
             tiktok_clip.mp4
 
       # ============================================================
-      # SUBTÍTULOS
+      # SUBTÍTULOS QUEMADOS
       # ============================================================
 
       - name: Burn subtitles into TikTok video
@@ -603,11 +934,16 @@ jobs:
 
       - name: Verify final TikTok video
         run: |
+          echo "=============================="
+          echo "VÍDEO FINAL"
+          echo "=============================="
+
           ls -lh final_tiktok.mp4
 
           echo ""
           echo "Duración final:"
-          ffprobe -v error \
+          ffprobe \
+            -v error \
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
             final_tiktok.mp4
@@ -635,7 +971,9 @@ jobs:
             tiktok_clip.mp4 \
             7200
 
-          echo "status=$(cat review_result.txt)" >> "$GITHUB_OUTPUT"
+          echo "status=$(cat review_result.txt)" \
+            >> "$GITHUB_OUTPUT"
+
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -653,9 +991,14 @@ jobs:
         run: |
           mkdir -p publication_package
 
-          cp final_tiktok.mp4 publication_package/
-          cp metadata.json publication_package/
-          cp review_state.json publication_package/
+          cp final_tiktok.mp4 \
+            publication_package/
+
+          cp metadata.json \
+            publication_package/
+
+          cp review_state.json \
+            publication_package/
 
       - name: Show publication package
         if: steps.telegram_review.outputs.status == 'approved'
@@ -676,12 +1019,17 @@ jobs:
           path: publication_package/
           if-no-files-found: error
 
+      # ============================================================
+      # TIKTOK
+      # ============================================================
+
       - name: Publish approved clip to TikTok
         if: steps.telegram_review.outputs.status == 'approved'
         run: |
           python src/tiktok_uploader.py \
             final_tiktok.mp4 \
             metadata.json
+
         env:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
@@ -691,6 +1039,10 @@ jobs:
         if: steps.telegram_review.outputs.status == 'approved'
         run: |
           cat tiktok_result.json
+
+      # ============================================================
+      # RECHAZADO
+      # ============================================================
 
       - name: Report rejected clip
         if: steps.telegram_review.outputs.status == 'rejected'
