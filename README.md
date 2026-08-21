@@ -19,7 +19,7 @@ Twitch
 → generar hashtags
 → revisión del usuario
 → aprobación
-→ publicación en TikTok
+→ subirlo al borrador de TikTok
 
 ## Principios
 
@@ -28,7 +28,7 @@ Twitch
 - Ningún vídeo se publicará sin aprobación explícita.
 - Prioridad a herramientas gratuitas y open source.
 - No contratar servicios de pago sin autorización.
-- El vídeo aprobado debe ser exactamente el vídeo publicado.
+- El vídeo aprobado debe ser exactamente el vídeo del borrador subido.
 
 ## Componentes previstos
 
