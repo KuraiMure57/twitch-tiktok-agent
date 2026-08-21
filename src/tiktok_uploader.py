@@ -16,41 +16,25 @@ class TikTokError(RuntimeError):
 
 
 def get_access_token_from_refresh_token():
-    client_key = os.environ.get(
-        "TIKTOK_CLIENT_KEY"
-    )
-    client_secret = os.environ.get(
-        "TIKTOK_CLIENT_SECRET"
-    )
-    refresh_token = os.environ.get(
-        "TIKTOK_REFRESH_TOKEN"
-    )
+    client_key = os.environ.get("TIKTOK_CLIENT_KEY")
+    client_secret = os.environ.get("TIKTOK_CLIENT_SECRET")
+    refresh_token = os.environ.get("TIKTOK_REFRESH_TOKEN")
 
     if not client_key:
-        raise TikTokError(
-            "Falta el secret TIKTOK_CLIENT_KEY."
-        )
+        raise TikTokError("Falta el secret TIKTOK_CLIENT_KEY.")
 
     if not client_secret:
-        raise TikTokError(
-            "Falta el secret TIKTOK_CLIENT_SECRET."
-        )
+        raise TikTokError("Falta el secret TIKTOK_CLIENT_SECRET.")
 
     if not refresh_token:
-        raise TikTokError(
-            "Falta el secret TIKTOK_REFRESH_TOKEN."
-        )
+        raise TikTokError("Falta el secret TIKTOK_REFRESH_TOKEN.")
 
-    print(
-        "Solicitando nuevo access token de TikTok..."
-    )
+    print("Solicitando nuevo access token de TikTok...")
 
     response = requests.post(
         OAUTH_TOKEN_URL,
         headers={
-            "Content-Type": (
-                "application/x-www-form-urlencoded"
-            ),
+            "Content-Type": "application/x-www-form-urlencoded",
         },
         data={
             "client_key": client_key,
@@ -61,56 +45,37 @@ def get_access_token_from_refresh_token():
         timeout=60,
     )
 
-    print(
-        "TikTok OAuth refresh: "
-        f"HTTP {response.status_code}"
-    )
+    print(f"TikTok OAuth refresh: HTTP {response.status_code}")
 
     if not response.ok:
         raise TikTokError(
-            "TikTok OAuth refresh falló: "
-            f"HTTP {response.status_code}: "
-            f"{response.text}"
+            f"TikTok OAuth refresh falló: HTTP {response.status_code}: {response.text}"
         )
 
     data = response.json()
 
     if data.get("error"):
         raise TikTokError(
-            "TikTok OAuth devolvió un error: "
-            f"{json.dumps(data, ensure_ascii=False)}"
+            f"TikTok OAuth devolvió un error: {json.dumps(data, ensure_ascii=False)}"
         )
 
-    access_token = data.get(
-        "access_token"
-    )
+    access_token = data.get("access_token")
 
     if not access_token:
-        raise TikTokError(
-            "TikTok OAuth no devolvió access_token."
-        )
+        raise TikTokError("TikTok OAuth no devolvió access_token.")
 
     if data.get("refresh_token"):
         print(
-            "TikTok ha devuelto un nuevo "
-            "refresh token. Será necesario "
-            "actualizar el GitHub Secret "
-            "TIKTOK_REFRESH_TOKEN posteriormente."
+            "TikTok ha devuelto un nuevo refresh token. Será necesario "
+            "actualizar el GitHub Secret TIKTOK_REFRESH_TOKEN posteriormente."
         )
 
-    print(
-        "Access token de TikTok obtenido "
-        "correctamente."
-    )
+    print("Access token de TikTok obtenido correctamente.")
 
     return access_token
 
 
-def api_post(
-    access_token,
-    endpoint,
-    payload,
-):
+def api_post(access_token, endpoint, payload):
     response = requests.post(
         f"{API_BASE}{endpoint}",
         headers={
@@ -121,35 +86,22 @@ def api_post(
         timeout=60,
     )
 
-    print(
-        f"TikTok {endpoint}: "
-        f"HTTP {response.status_code}"
-    )
+    print(f"TikTok {endpoint}: HTTP {response.status_code}")
 
     if not response.ok:
-        raise TikTokError(
-            f"TikTok HTTP {response.status_code}: "
-            f"{response.text}"
-        )
+        raise TikTokError(f"TikTok HTTP {response.status_code}: {response.text}")
 
     data = response.json()
 
-    if data.get("error", {}).get("code") not in (
-        None,
-        "",
-        "ok",
-    ):
+    if data.get("error", {}).get("code") not in (None, "", "ok"):
         raise TikTokError(
-            "TikTok API error: "
-            f"{json.dumps(data, ensure_ascii=False)}"
+            f"TikTok API error: {json.dumps(data, ensure_ascii=False)}"
         )
 
     return data
 
 
-def query_creator_info(
-    access_token,
-):
+def query_creator_info(access_token):
     return api_post(
         access_token,
         "/v2/post/publish/creator_info/query/",
@@ -157,13 +109,8 @@ def query_creator_info(
     )
 
 
-def clean_hashtags(
-    metadata,
-):
-    hashtags = metadata.get(
-        "hashtags",
-        [],
-    )
+def clean_hashtags(metadata):
+    hashtags = metadata.get("hashtags", [])
 
     if not isinstance(hashtags, list):
         hashtags = []
@@ -188,9 +135,7 @@ def clean_hashtags(
     return cleaned
 
 
-def optimize_hashtags(
-    metadata,
-):
+def optimize_hashtags(metadata):
     """
     Orden definitivo:
 
@@ -203,9 +148,7 @@ def optimize_hashtags(
     Máximo 5 hashtags.
     """
 
-    original = clean_hashtags(
-        metadata
-    )
+    original = clean_hashtags(metadata)
 
     game = []
     context = []
@@ -214,22 +157,13 @@ def optimize_hashtags(
     brand = []
 
     for hashtag in original:
-
         lower = hashtag.lower()
 
-        if lower in (
-            "#twitch",
-            "#kuraimure57",
-        ):
+        if lower in ("#twitch", "#kuraimure57"):
             continue
 
-        if lower in (
-            "#gaming",
-            "#tiktokgaming",
-        ):
-            gaming.append(
-                "#Gaming"
-            )
+        if lower in ("#gaming", "#tiktokgaming"):
+            gaming.append("#Gaming")
             continue
 
         if lower in (
@@ -242,14 +176,10 @@ def optimize_hashtags(
             "#wtf",
             "#fail",
         ):
-            context.append(
-                hashtag
-            )
+            context.append(hashtag)
             continue
 
-        game.append(
-            hashtag
-        )
+        game.append(hashtag)
 
     result = []
 
@@ -262,128 +192,56 @@ def optimize_hashtags(
     add_unique(context)
 
     if gaming:
-        add_unique(
-            ["#Gaming"]
-        )
+        add_unique(["#Gaming"])
     else:
-        add_unique(
-            ["#Gaming"]
-        )
+        add_unique(["#Gaming"])
 
-    add_unique(
-        ["#Twitch"]
-    )
-
-    add_unique(
-        ["#KuraiMure57"]
-    )
+    add_unique(["#Twitch"])
+    add_unique(["#KuraiMure57"])
 
     return result[:5]
 
 
-def build_caption(
-    metadata,
-):
-    title = str(
-        metadata.get(
-            "title",
-            "",
-        )
-    ).strip()
+def build_caption(metadata):
+    title = str(metadata.get("title", "")).strip()
 
     if not title:
-        raise TikTokError(
-            "metadata.json no contiene un título."
-        )
+        raise TikTokError("metadata.json no contiene un título.")
 
-    hashtags = optimize_hashtags(
-        metadata
-    )
+    hashtags = optimize_hashtags(metadata)
 
     caption = title
 
     if hashtags:
         caption += "\n\n"
-        caption += " ".join(
-            hashtags
-        )
+        caption += " ".join(hashtags)
 
     return caption
 
 
-def validate_video(
-    video_path,
-):
+def validate_video(video_path):
     if not video_path.exists():
-        raise FileNotFoundError(
-            f"No existe el vídeo: {video_path}"
-        )
+        raise FileNotFoundError(f"No existe el vídeo: {video_path}")
 
     if video_path.stat().st_size == 0:
-        raise TikTokError(
-            "El vídeo está vacío."
-        )
+        raise TikTokError("El vídeo está vacío.")
 
     if video_path.suffix.lower() != ".mp4":
-        raise TikTokError(
-            "TikTok uploader espera un MP4."
-        )
+        raise TikTokError("TikTok uploader espera un MP4.")
 
 
-def initialize_direct_post(
-    access_token,
-    creator_info,
-    video_path,
-    caption,
-):
-    privacy_options = creator_info[
-        "data"
-    ].get(
-        "privacy_level_options",
-        [],
-    )
-
-    if not privacy_options:
-        raise TikTokError(
-            "TikTok no devolvió opciones de privacidad."
-        )
-
-    # ---------------------------------------------------------
-    # Aplicaciones TikTok no auditadas:
-    #
-    # TikTok permite realizar publicaciones de prueba
-    # únicamente con SELF_ONLY.
-    #
-    # Cuando la aplicación sea auditada podremos cambiar
-    # nuevamente este valor a PUBLIC_TO_EVERYONE.
-    # ---------------------------------------------------------
-
-    preferred_privacy = (
-        "SELF_ONLY"
-    )
-
-    if preferred_privacy not in privacy_options:
-        raise TikTokError(
-            "SELF_ONLY no está "
-            "disponible para esta cuenta. "
-            f"Opciones: {privacy_options}"
-        )
-
-    video_size = (
-        video_path.stat().st_size
-    )
-
+def initialize_direct_post(access_token, creator_info, video_path, caption):
+    """
+    Inicializa la subida hacia el endpoint de la bandeja de entrada (Inbox/Borradores).
+    Esto permite a cuentas públicas usar el bot sin requerir una auditoría de la API.
+    Nota: Se omiten títulos y configuraciones de interacción ya que el endpoint de Inbox
+    no los acepta en el payload de inicialización.
+    """
+    video_size = video_path.stat().st_size
     chunk_size = video_size
     total_chunks = 1
 
     payload = {
-        "post_info": {
-            "title": caption,
-            "privacy_level": preferred_privacy,
-            "disable_duet": False,
-            "disable_comment": False,
-            "disable_stitch": False,
-        },
         "source_info": {
             "source": "FILE_UPLOAD",
             "video_size": video_size,
@@ -392,349 +250,99 @@ def initialize_direct_post(
         },
     }
 
+    print("Inicializando subida en modo Borrador (TikTok Inbox API)...")
+
+    # Cambiado al endpoint correcto para enviar a borradores / bandeja de entrada
     return api_post(
         access_token,
-        "/v2/post/publish/video/init/",
+        "/v2/post/publish/inbox/video/init/",
         payload,
     )
 
 
-def upload_video(
-    upload_url,
-    video_path,
-    chunk_size=None,
-):
-    total_size = (
-        video_path.stat().st_size
-    )
+def upload_video(upload_url, video_path, chunk_size=None):
+    total_size = video_path.stat().st_size
 
     if chunk_size is None:
         chunk_size = total_size
 
-    with video_path.open(
-        "rb"
-    ) as file:
-
+    with video_path.open("rb") as file:
         start = 0
 
         while start < total_size:
-
-            chunk = file.read(
-                chunk_size
-            )
+            chunk = file.read(chunk_size)
 
             if not chunk:
                 break
 
-            end = (
-                start
-                + len(chunk)
-                - 1
-            )
+            end = start + len(chunk)
 
             headers = {
+                "Content-Range": f"bytes {start}-{end-1}/{total_size}",
                 "Content-Type": "video/mp4",
-                "Content-Length": str(
-                    len(chunk)
-                ),
-                "Content-Range": (
-                    f"bytes {start}-{end}/"
-                    f"{total_size}"
-                ),
             }
-
-            print(
-                f"Subiendo TikTok: "
-                f"{end + 1}/{total_size} bytes"
-            )
 
             response = requests.put(
                 upload_url,
                 headers=headers,
                 data=chunk,
-                timeout=180,
+                timeout=60,
             )
 
-            if not response.ok:
+            print(
+                f"Chunk {start}-{end-1}/{total_size}: HTTP {response.status_code}"
+            )
+
+            if response.status_code not in (200, 201, 308):
                 raise TikTokError(
-                    "Error subiendo vídeo a TikTok: "
-                    f"{response.status_code} "
-                    f"{response.text}"
+                    f"Subida de chunk falló: HTTP {response.status_code}: {response.text}"
                 )
 
-            start = end + 1
+            start = end
 
 
-def fetch_status(
-    access_token,
-    publish_id,
-):
-    return api_post(
-        access_token,
-        "/v2/post/publish/status/fetch/",
-        {
-            "publish_id": publish_id,
-        },
-    )
+def main():
+    if len(sys.argv) < 3:
+        print(f"Uso: {sys.argv[0]} <ruta_video> <ruta_metadata_json>")
+        sys.exit(1)
 
+    video_path = Path(sys.argv[1])
+    metadata_path = Path(sys.argv[2])
 
-def wait_for_publication(
-    access_token,
-    publish_id,
-    timeout_seconds=600,
-):
-    deadline = (
-        time.time()
-        + timeout_seconds
-    )
+    try:
+        validate_video(video_path)
 
-    while time.time() < deadline:
+        with metadata_path.open("r", encoding="utf-8") as f:
+            metadata = json.load(f)
 
-        result = fetch_status(
-            access_token,
-            publish_id,
+        caption = build_caption(metadata)
+
+        print("\n===== TIKTOK CAPTION =====")
+        print(caption)
+        print("==========================\n")
+
+        access_token = get_access_token_from_refresh_token()
+        creator_info = query_creator_info(access_token)
+
+        account_name = creator_info.get("data", {}).get("username", "Desconocida")
+        print(f"Cuenta TikTok: @{account_name}")
+
+        init_data = initialize_direct_post(
+            access_token, creator_info, video_path, caption
         )
 
-        data = result.get(
-            "data",
-            {},
-        )
+        upload_url = init_data.get("data", {}).get("upload_url")
+        if not upload_url:
+            raise TikTokError("No se recibió la URL de subida de TikTok.")
 
-        status = data.get(
-            "status"
-        )
+        print("Subiendo vídeo...")
+        upload_video(upload_url, video_path)
+        print("Vídeo enviado correctamente a los borradores de TikTok.")
 
-        print(
-            f"Estado publicación TikTok: "
-            f"{status}"
-        )
-
-        if status == "PUBLISH_COMPLETE":
-
-            post_ids = data.get(
-                "publicaly_available_post_id",
-                [],
-            )
-
-            return {
-                "status": "published",
-                "publish_id": publish_id,
-                "post_ids": post_ids,
-                "raw": data,
-            }
-
-        if status == "FAILED":
-
-            raise TikTokError(
-                "TikTok ha rechazado la publicación: "
-                + str(
-                    data.get(
-                        "fail_reason",
-                        "unknown",
-                    )
-                )
-            )
-
-        time.sleep(10)
-
-    raise TikTokError(
-        "Se agotó el tiempo esperando "
-        "la publicación de TikTok."
-    )
-
-
-def publish(
-    access_token,
-    video_path,
-    metadata_path,
-):
-    video_path = Path(
-        video_path
-    )
-
-    metadata_path = Path(
-        metadata_path
-    )
-
-    validate_video(
-        video_path
-    )
-
-    with metadata_path.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        metadata = json.load(
-            file
-        )
-
-    caption = build_caption(
-        metadata
-    )
-
-    print("")
-    print(
-        "===== TIKTOK CAPTION ====="
-    )
-    print(caption)
-    print(
-        "=========================="
-    )
-    print("")
-
-    creator_info = query_creator_info(
-        access_token
-    )
-
-    creator_data = creator_info.get(
-        "data",
-        {},
-    )
-
-    print(
-        "Cuenta TikTok:"
-        f" @{creator_data.get('creator_username', 'unknown')}"
-    )
-
-    print(
-        "Opciones de privacidad:"
-        f" {creator_data.get('privacy_level_options', [])}"
-    )
-
-    max_duration = creator_data.get(
-        "max_video_post_duration_sec"
-    )
-
-    print(
-        "Duración máxima:"
-        f" {max_duration} segundos"
-    )
-
-    video_size = (
-        video_path.stat().st_size
-    )
-
-    chunk_size = video_size
-    total_chunks = 1
-
-    print(
-        f"Tamaño vídeo: "
-        f"{video_size} bytes"
-    )
-
-    print(
-        f"Tamaño chunk: "
-        f"{chunk_size} bytes"
-    )
-
-    print(
-        f"Número de chunks: "
-        f"{total_chunks}"
-    )
-
-    result = initialize_direct_post(
-        access_token,
-        creator_info,
-        video_path,
-        caption,
-    )
-
-    data = result.get(
-        "data",
-        {},
-    )
-
-    publish_id = data.get(
-        "publish_id"
-    )
-
-    upload_url = data.get(
-        "upload_url"
-    )
-
-    if not publish_id:
-        raise TikTokError(
-            "TikTok no devolvió publish_id."
-        )
-
-    if not upload_url:
-        raise TikTokError(
-            "TikTok no devolvió upload_url."
-        )
-
-    print(
-        f"Publish ID: {publish_id}"
-    )
-
-    upload_video(
-        upload_url,
-        video_path,
-        chunk_size=chunk_size,
-    )
-
-    result = wait_for_publication(
-        access_token,
-        publish_id,
-    )
-
-    result["caption"] = caption
-
-    return result
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-
-    if len(sys.argv) != 3:
-        print(
-            "Uso:"
-            " python src/tiktok_uploader.py"
-            " final_tiktok.mp4"
-            " metadata.json"
-        )
-        sys.exit(1)
-
-    access_token = (
-        get_access_token_from_refresh_token()
-    )
-
-    video_path = Path(
-        sys.argv[1]
-    )
-
-    metadata_path = Path(
-        sys.argv[2]
-    )
-
-    result = publish(
-        access_token,
-        video_path,
-        metadata_path,
-    )
-
-    with open(
-        "tiktok_result.json",
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        json.dump(
-            result,
-            file,
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    print("")
-    print(
-        "===== RESULTADO TIKTOK ====="
-    )
-    print(
-        json.dumps(
-            result,
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
-    print(
-        "============================="
-    )
+    main()
