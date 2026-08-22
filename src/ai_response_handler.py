@@ -272,6 +272,24 @@ def find_matching_original_segment(
     return best_match
 
 
+def get_speaker(
+    segment: dict,
+    fallback: str = "kuraimure",
+) -> str:
+
+    speaker = str(
+        segment.get(
+            "speaker",
+            fallback,
+        )
+    ).strip()
+
+    if not speaker:
+        return fallback
+
+    return speaker
+
+
 def build_final_segments(
     ai_response: dict,
     original_segments: list,
@@ -368,6 +386,17 @@ def build_final_segments(
                 original["end"]
             )
 
+            # Gemini tiene prioridad para identificar
+            # al hablante. Si no lo proporciona,
+            # conservamos el del segmento original.
+            speaker = get_speaker(
+                ai_segment,
+                get_speaker(
+                    original,
+                    "kuraimure",
+                ),
+            )
+
         else:
 
             # Segmento nuevo:
@@ -380,11 +409,17 @@ def build_final_segments(
             end = ai_end
             final_text = ai_text
 
+            speaker = get_speaker(
+                ai_segment,
+                "kuraimure",
+            )
+
             print(
                 "Nuevo segmento recuperado "
                 "por Gemini: "
                 f"{start:.3f}s - "
                 f"{end:.3f}s | "
+                f"[{speaker}] | "
                 f"{final_text}"
             )
 
@@ -393,6 +428,7 @@ def build_final_segments(
                 "start": start,
                 "end": end,
                 "text": final_text,
+                "speaker": speaker,
             }
         )
 
@@ -427,6 +463,10 @@ def remove_duplicate_segments(
             ),
             normalize_text(
                 segment["text"]
+            ),
+            segment.get(
+                "speaker",
+                "kuraimure",
             ),
         )
 
@@ -465,9 +505,15 @@ def write_final_subtitles(
 
             text = segment["text"]
 
+            speaker = get_speaker(
+                segment,
+                "kuraimure",
+            )
+
             file.write(
                 f"{start:.3f}|"
                 f"{end:.3f}|"
+                f"{speaker}|"
                 f"{text}\n"
             )
 
@@ -534,6 +580,11 @@ def main() -> None:
             "Los segmentos que Whisper "
             "omitió pueden ser añadidos "
             "por Gemini."
+        )
+
+        print(
+            "La información del hablante "
+            "se conserva."
         )
 
         print(
