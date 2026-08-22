@@ -11,12 +11,14 @@ TIMESTAMP_TOLERANCE = 0.05
 
 # Máximo de palabras visibles simultáneamente.
 #
-# IMPORTANTE:
 # Gemini puede juntar varias frases y devolver una frase
 # mucho más larga que las originales.
 #
-# Por eso este límite se aplica DESPUÉS de Gemini.
-MAX_WORDS_PER_SUBTITLE = 3
+# Este límite se aplica DESPUÉS de Gemini.
+#
+# 4 palabras permite mantener subtítulos cortos y fáciles
+# de leer sin fragmentarlos demasiado.
+MAX_WORDS_PER_SUBTITLE = 4
 
 
 # ============================================================
@@ -749,9 +751,9 @@ def main() -> None:
         # ----------------------------------------------------
         # 2. DIVIDIR FRASES LARGAS
         #
-        # ESTA ES LA PARTE IMPORTANTE.
-        #
-        # Se hace DESPUÉS de Gemini.
+        # Se hace DESPUÉS de Gemini para evitar que una
+        # respuesta larga de Gemini vuelva a generar
+        # subtítulos demasiado extensos.
         # ----------------------------------------------------
 
         final_segments = split_long_subtitles(
