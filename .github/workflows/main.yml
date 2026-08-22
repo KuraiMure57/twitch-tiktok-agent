@@ -40,14 +40,23 @@ jobs:
           }
           EOF
 
-      # Ejecutamos el script pasando el secreto de las COOKIES
+      # Ejecutamos el script simulando un monitor virtual con xvfb-run
       - name: Publicar vídeo de prueba en TikTok
         env:
           TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
         run: |
-          python src/tiktok_uploader.py \
+          sudo apt-get update && sudo apt-get install -y xvfb
+          xvfb-run --server-args="-screen 0 1366x768x24" python src/tiktok_uploader.py \
             src/tiktok_test.mp4 \
             metadata.json
+
+      # Si hay algún problema, este paso te empaquetará la foto de la pantalla para que la descargues
+      - name: Descargar captura de pantalla de depuración si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiktok-debug-image
+          path: debug_tiktok.png
 
       # Este paso lo dejamos para que compruebe si tu script generó el reporte final
       - name: Mostrar resultado de publicación
