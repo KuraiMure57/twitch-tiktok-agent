@@ -39,7 +39,34 @@ PROFANITY_WORDS = {
 }
 
 
-def censor_profanity(text: str) -> str:
+# ---------------------------------------------------------
+# CONFIGURACIÓN VISUAL DE SUBTÍTULOS
+# ---------------------------------------------------------
+#
+# El vídeo es vertical 1080x1920.
+#
+# 18 era demasiado pequeño para TikTok.
+# 48 proporciona una lectura mucho más cómoda
+# manteniendo suficiente espacio para varias palabras.
+#
+# Si posteriormente queremos hacerlo todavía más grande,
+# podemos probar 52 o 56.
+# ---------------------------------------------------------
+
+SUBTITLE_FONT_NAME = "Arial"
+SUBTITLE_FONT_SIZE = 48
+
+SUBTITLE_OUTLINE = 4
+SUBTITLE_SHADOW = 1
+
+SUBTITLE_MARGIN_LEFT = 60
+SUBTITLE_MARGIN_RIGHT = 60
+SUBTITLE_MARGIN_BOTTOM = 100
+
+
+def censor_profanity(
+    text: str,
+) -> str:
 
     if not text:
         return text
@@ -101,7 +128,9 @@ def format_ass_timestamp(
     )
 
 
-def ass_color(rgb) -> str:
+def ass_color(
+    rgb,
+) -> str:
 
     red, green, blue = rgb
 
@@ -145,7 +174,7 @@ def create_ass(
 
     if not subtitles_file.exists():
         raise FileNotFoundError(
-            f"No existe el archivo: "
+            f"No existe el archivo de subtítulos: "
             f"{subtitles_file}"
         )
 
@@ -333,16 +362,21 @@ def create_ass(
 
             file.write(
                 f"Style: {style_name},"
-                f"Arial,"
-                f"18,"
+                f"{SUBTITLE_FONT_NAME},"
+                f"{SUBTITLE_FONT_SIZE},"
                 f"&H00FFFFFF,"
                 f"&H00FFFFFF,"
                 f"{outline},"
                 f"&H00000000,"
                 f"1,0,0,0,"
                 f"100,100,0,0,"
-                f"1,3,0,"
-                f"2,40,40,60,"
+                f"1,"
+                f"{SUBTITLE_OUTLINE},"
+                f"{SUBTITLE_SHADOW},"
+                f"2,"
+                f"{SUBTITLE_MARGIN_LEFT},"
+                f"{SUBTITLE_MARGIN_RIGHT},"
+                f"{SUBTITLE_MARGIN_BOTTOM},"
                 f"1\n"
             )
 
@@ -478,6 +512,16 @@ def burn_subtitles(
     print(
         "Quemando subtítulos "
         "multicolor en el vídeo..."
+    )
+
+    print(
+        f"Tamaño de fuente: "
+        f"{SUBTITLE_FONT_SIZE}"
+    )
+
+    print(
+        f"Borde: "
+        f"{SUBTITLE_OUTLINE}"
     )
 
     subprocess.run(
