@@ -3,19 +3,15 @@ import sys
 from pathlib import Path
 
 
-TIMESTAMP_TOLERANCE = 0.05
-
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
 
-# Máximo de palabras visibles simultáneamente.
-#
-# Gemini puede juntar varias frases y devolver una frase
-# mucho más larga que las originales.
-#
-# Este límite se aplica DESPUÉS de Gemini.
-MAX_WORDS_PER_SUBTITLE = 3
+REQUIRED_SEGMENT_FIELDS = (
+    "start",
+    "end",
+    "text",
+)
 
 
 # ============================================================
@@ -37,637 +33,297 @@ def load_json(path: str) -> dict:
         return json.load(file)
 
 
-def get_segments(data: dict) -> list:
-    segments = data.get(
-        "segments",
-        [],
-    )
+# ============================================================
+# VALIDACIÓN GENERAL
+# ============================================================
+
+def validate_root(data: dict) -> None:
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            "La respuesta de Gemini debe ser "
+            "un objeto JSON."
+        )
+
+    if "segments" not in data:
+        raise ValueError(
+            "La respuesta de Gemini no contiene "
+            "el campo 'segments'."
+        )
 
     if not isinstance(
-        segments,
+        data["segments"],
         list,
     ):
         raise ValueError(
             "El campo 'segments' debe ser una lista."
         )
 
-    return segments
-
 
 # ============================================================
-# TEXTO
+# VALIDAR SEGMENTOS
 # ============================================================
 
-def normalize_text(text: str) -> str:
-    return " ".join(
-        text.strip().lower().split()
-    )
+def validate_segments(
+    segments: list,
+) -> None:
 
+    previous_end = None
 
-# ============================================================
-# PUNTUACIÓN EMOCIONAL
-# ============================================================
-
-def looks_like_emotional_change(
-    original: str,
-    corrected: str,
-) -> bool:
-
-    original_normalized = normalize_text(
-        original
-    )
-
-    corrected_normalized = normalize_text(
-        corrected
-    )
-
-    if (
-        not original_normalized
-        or not corrected_normalized
-    ):
-        return False
-
-    original_has_exclamation = (
-        "!" in original
-        or "¡" in original
-    )
-
-    corrected_has_exclamation = (
-        "!" in corrected
-        or "¡" in corrected
-    )
-
-    original_has_question = (
-        "?" in original
-        or "¿" in original
-    )
-
-    corrected_has_question = (
-        "?" in corrected
-        or "¿" in corrected
-    )
-
-    if (
-        original_has_exclamation
-        and corrected_has_question
-        and not corrected_has_exclamation
-    ):
-        return True
-
-    if (
-        original_has_exclamation
-        and not corrected_has_exclamation
-        and not corrected_has_question
-    ):
-
-        original_words = set(
-            original_normalized
-            .replace("¡", "")
-            .replace("!", "")
-            .split()
-        )
-
-        corrected_words = set(
-            corrected_normalized
-            .replace("¿", "")
-            .replace("?", "")
-            .split()
-        )
-
-        if (
-            original_words
-            and corrected_words
-        ):
-
-            common_words = (
-                original_words.intersection(
-                    corrected_words
-                )
-            )
-
-            similarity = (
-                len(common_words)
-                / max(
-                    len(original_words),
-                    len(corrected_words),
-                )
-            )
-
-            if similarity >= 0.5:
-                return True
-
-    return False
-
-
-def restore_emotional_punctuation(
-    original: str,
-    corrected: str,
-) -> str:
-
-    if not original or not corrected:
-        return corrected
-
-    if not looks_like_emotional_change(
-        original,
-        corrected,
-    ):
-        return corrected
-
-    original_has_exclamation = (
-        "!" in original
-        or "¡" in original
-    )
-
-    corrected_has_question = (
-        "?" in corrected
-        or "¿" in corrected
-    )
-
-    if (
-        original_has_exclamation
-        and corrected_has_question
-    ):
-
-        cleaned = (
-            corrected
-            .replace("¿", "")
-            .replace("?", "")
-            .strip()
-        )
-
-        if cleaned:
-            return (
-                "¡"
-                + cleaned.rstrip("¡!")
-                + "!"
-            )
-
-    if (
-        original_has_exclamation
-        and "!" not in corrected
-        and "¡" not in corrected
-    ):
-
-        cleaned = corrected.strip()
-
-        if cleaned:
-            return (
-                "¡"
-                + cleaned.rstrip("¡!")
-                + "!"
-            )
-
-    return corrected
-
-
-# ============================================================
-# SPEAKER
-# ============================================================
-
-def get_speaker(
-    segment: dict,
-    fallback: str = "kuraimure",
-) -> str:
-
-    speaker = str(
-        segment.get(
-            "speaker",
-            fallback,
-        )
-    ).strip()
-
-    if not speaker:
-        return fallback
-
-    return speaker
-
-
-# ============================================================
-# MATCHING DE SEGMENTOS
-# ============================================================
-
-def find_matching_original_segment(
-    ai_segment: dict,
-    original_segments: list,
-):
-
-    ai_start = float(
-        ai_segment["start"]
-    )
-
-    ai_end = float(
-        ai_segment["end"]
-    )
-
-    best_match = None
-    best_difference = None
-
-    for original in original_segments:
-
-        original_start = float(
-            original["start"]
-        )
-
-        original_end = float(
-            original["end"]
-        )
-
-        difference = (
-            abs(
-                ai_start
-                - original_start
-            )
-            +
-            abs(
-                ai_end
-                - original_end
-            )
-        )
-
-        if (
-            abs(
-                ai_start
-                - original_start
-            )
-            <= TIMESTAMP_TOLERANCE
-            and
-            abs(
-                ai_end
-                - original_end
-            )
-            <= TIMESTAMP_TOLERANCE
-        ):
-
-            if (
-                best_difference is None
-                or difference < best_difference
-            ):
-
-                best_match = original
-                best_difference = difference
-
-    return best_match
-
-
-# ============================================================
-# CREAR SEGMENTOS FINALES
-# ============================================================
-
-def build_final_segments(
-    ai_response: dict,
-    original_segments: list,
-) -> list:
-
-    ai_segments = get_segments(
-        ai_response
-    )
-
-    result = []
-
-    for ai_index, ai_segment in enumerate(
-        ai_segments,
+    for index, segment in enumerate(
+        segments,
         start=1,
     ):
 
         if not isinstance(
-            ai_segment,
+            segment,
             dict,
         ):
             raise ValueError(
-                f"Segmento de Gemini "
-                f"{ai_index} inválido."
+                f"Segmento {index}: debe ser "
+                f"un objeto JSON."
             )
 
-        if "start" not in ai_segment:
-            raise ValueError(
-                f"Gemini: falta start "
-                f"en segmento {ai_index}."
-            )
+        # ----------------------------------------------------
+        # CAMPOS OBLIGATORIOS
+        # ----------------------------------------------------
 
-        if "end" not in ai_segment:
-            raise ValueError(
-                f"Gemini: falta end "
-                f"en segmento {ai_index}."
-            )
+        for field in REQUIRED_SEGMENT_FIELDS:
 
-        if "text" not in ai_segment:
-            raise ValueError(
-                f"Gemini: falta text "
-                f"en segmento {ai_index}."
-            )
-
-        ai_start = float(
-            ai_segment["start"]
-        )
-
-        ai_end = float(
-            ai_segment["end"]
-        )
-
-        ai_text = str(
-            ai_segment["text"]
-        ).strip()
-
-        if ai_end <= ai_start:
-            raise ValueError(
-                f"Timestamp inválido "
-                f"en segmento {ai_index}."
-            )
-
-        if not ai_text:
-            continue
-
-        original = find_matching_original_segment(
-            ai_segment,
-            original_segments,
-        )
-
-        if original is not None:
-
-            original_text = str(
-                original.get(
-                    "text",
-                    "",
+            if field not in segment:
+                raise ValueError(
+                    f"Segmento {index}: falta "
+                    f"el campo '{field}'."
                 )
-            ).strip()
 
-            final_text = (
-                restore_emotional_punctuation(
-                    original_text,
-                    ai_text,
-                )
-            )
+        # ----------------------------------------------------
+        # START
+        # ----------------------------------------------------
 
-            # Conservamos los timestamps originales.
+        try:
+
             start = float(
-                original["start"]
+                segment["start"]
             )
 
-            end = float(
-                original["end"]
-            )
-
-            # Gemini tiene prioridad para identificar
-            # al hablante.
-            speaker = get_speaker(
-                ai_segment,
-                get_speaker(
-                    original,
-                    "kuraimure",
-                ),
-            )
-
-        else:
-
-            # Gemini puede recuperar segmentos que
-            # Whisper no detectó correctamente.
-
-            start = ai_start
-            end = ai_end
-            final_text = ai_text
-
-            speaker = get_speaker(
-                ai_segment,
-                "kuraimure",
-            )
-
-            print(
-                "Nuevo segmento recuperado "
-                "por Gemini: "
-                f"{start:.3f}s - "
-                f"{end:.3f}s | "
-                f"[{speaker}] | "
-                f"{final_text}"
-            )
-
-        result.append(
-            {
-                "start": start,
-                "end": end,
-                "text": final_text,
-                "speaker": speaker,
-            }
-        )
-
-    result.sort(
-        key=lambda segment: (
-            segment["start"],
-            segment["end"],
-        )
-    )
-
-    return result
-
-
-# ============================================================
-# DIVIDIR FRASES LARGAS
-# ============================================================
-
-def split_long_subtitles(
-    segments: list,
-    max_words: int = MAX_WORDS_PER_SUBTITLE,
-) -> list:
-
-    if max_words < 1:
-        raise ValueError(
-            "max_words debe ser mayor que 0."
-        )
-
-    result = []
-
-    for segment in segments:
-
-        text = str(
-            segment.get(
-                "text",
-                "",
-            )
-        ).strip()
-
-        if not text:
-            continue
-
-        words = text.split()
-
-        if len(words) <= max_words:
-            result.append(segment)
-            continue
-
-        start = float(
-            segment["start"]
-        )
-
-        end = float(
-            segment["end"]
-        )
-
-        duration = end - start
-
-        chunks = [
-            words[index:index + max_words]
-            for index in range(
-                0,
-                len(words),
-                max_words,
-            )
-        ]
-
-        total_words = len(words)
-        elapsed_words = 0
-
-        speaker = get_speaker(
-            segment,
-            "kuraimure",
-        )
-
-        print(
-            "Dividiendo segmento: "
-            f"{len(words)} palabras -> "
-            f"{len(chunks)} subtítulos | "
-            f"[{speaker}] | "
-            f"{text}"
-        )
-
-        for chunk_index, chunk in enumerate(
-            chunks
+        except (
+            TypeError,
+            ValueError,
         ):
 
-            chunk_start = (
-                start
-                + duration
-                * (
-                    elapsed_words
-                    / total_words
-                )
+            raise ValueError(
+                f"Segmento {index}: "
+                f"'start' no es numérico."
             )
 
-            elapsed_words += len(chunk)
+        # ----------------------------------------------------
+        # END
+        # ----------------------------------------------------
 
-            if (
-                chunk_index
-                == len(chunks) - 1
+        try:
+
+            end = float(
+                segment["end"]
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            raise ValueError(
+                f"Segmento {index}: "
+                f"'end' no es numérico."
+            )
+
+        # ----------------------------------------------------
+        # TIMESTAMPS
+        # ----------------------------------------------------
+
+        if start < 0:
+            raise ValueError(
+                f"Segmento {index}: "
+                f"'start' no puede ser negativo."
+            )
+
+        if end <= start:
+            raise ValueError(
+                f"Segmento {index}: "
+                f"'end' debe ser mayor que 'start'. "
+                f"({start} -> {end})"
+            )
+
+        # ----------------------------------------------------
+        # ORDEN TEMPORAL
+        # ----------------------------------------------------
+
+        if (
+            previous_end is not None
+            and start < previous_end
+        ):
+
+            raise ValueError(
+                f"Segmento {index}: "
+                f"los timestamps se solapan con "
+                f"el segmento anterior. "
+                f"Anterior termina en "
+                f"{previous_end:.3f}s y este empieza "
+                f"en {start:.3f}s."
+            )
+
+        previous_end = end
+
+        # ----------------------------------------------------
+        # TEXTO
+        # ----------------------------------------------------
+
+        text = segment["text"]
+
+        if not isinstance(
+            text,
+            str,
+        ):
+            raise ValueError(
+                f"Segmento {index}: "
+                f"'text' debe ser texto."
+            )
+
+        if not text.strip():
+            raise ValueError(
+                f"Segmento {index}: "
+                f"'text' está vacío."
+            )
+
+        # ----------------------------------------------------
+        # SPEAKER
+        #
+        # No lo hacemos obligatorio porque Gemini puede
+        # devolver segmentos sin speaker y el handler
+        # utilizará kuraimure como fallback.
+        # ----------------------------------------------------
+
+        if "speaker" in segment:
+
+            speaker = segment["speaker"]
+
+            if not isinstance(
+                speaker,
+                str,
             ):
-
-                chunk_end = end
-
-            else:
-
-                chunk_end = (
-                    start
-                    + duration
-                    * (
-                        elapsed_words
-                        / total_words
-                    )
+                raise ValueError(
+                    f"Segmento {index}: "
+                    f"'speaker' debe ser texto."
                 )
 
-            result.append(
-                {
-                    "start": round(
-                        chunk_start,
-                        3,
-                    ),
-                    "end": round(
-                        chunk_end,
-                        3,
-                    ),
-                    "text": " ".join(
-                        chunk
-                    ),
-                    "speaker": speaker,
-                }
-            )
-
-    return result
+            if not speaker.strip():
+                raise ValueError(
+                    f"Segmento {index}: "
+                    f"'speaker' no puede estar vacío."
+                )
 
 
 # ============================================================
-# ELIMINAR DUPLICADOS
+# VALIDAR RESPUESTA COMPLETA
 # ============================================================
 
-def remove_duplicate_segments(
-    segments: list,
-) -> list:
-
-    result = []
-    seen = set()
-
-    for segment in segments:
-
-        key = (
-            round(
-                float(
-                    segment["start"]
-                ),
-                3,
-            ),
-            round(
-                float(
-                    segment["end"]
-                ),
-                3,
-            ),
-            normalize_text(
-                segment["text"]
-            ),
-            segment.get(
-                "speaker",
-                "kuraimure",
-            ),
-        )
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-        result.append(segment)
-
-    return result
-
-
-# ============================================================
-# ESCRIBIR RESULTADO
-# ============================================================
-
-def write_final_subtitles(
-    segments: list,
-    output_path: str,
+def validate_ai_response(
+    data: dict,
 ) -> None:
 
-    output_file = Path(
-        output_path
+    validate_root(
+        data
     )
+
+    segments = data["segments"]
+
+    validate_segments(
+        segments
+    )
+
+
+# ============================================================
+# NORMALIZAR RESPUESTA
+# ============================================================
+
+def normalize_ai_response(
+    data: dict,
+) -> dict:
+
+    normalized = dict(data)
+
+    normalized_segments = []
+
+    for segment in data["segments"]:
+
+        normalized_segment = dict(
+            segment
+        )
+
+        normalized_segment["start"] = round(
+            float(
+                normalized_segment["start"]
+            ),
+            3,
+        )
+
+        normalized_segment["end"] = round(
+            float(
+                normalized_segment["end"]
+            ),
+            3,
+        )
+
+        normalized_segment["text"] = (
+            str(
+                normalized_segment["text"]
+            )
+            .strip()
+        )
+
+        if "speaker" in normalized_segment:
+
+            normalized_segment["speaker"] = (
+                str(
+                    normalized_segment["speaker"]
+                )
+                .strip()
+            )
+
+        normalized_segments.append(
+            normalized_segment
+        )
+
+    normalized["segments"] = (
+        normalized_segments
+    )
+
+    return normalized
+
+
+# ============================================================
+# GUARDAR JSON NORMALIZADO
+# ============================================================
+
+def save_json(
+    data: dict,
+    path: str,
+) -> None:
+
+    output_file = Path(path)
 
     with output_file.open(
         "w",
         encoding="utf-8",
     ) as file:
 
-        for segment in segments:
+        json.dump(
+            data,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
 
-            start = float(
-                segment["start"]
-            )
-
-            end = float(
-                segment["end"]
-            )
-
-            text = str(
-                segment["text"]
-            ).strip()
-
-            speaker = get_speaker(
-                segment,
-                "kuraimure",
-            )
-
-            file.write(
-                f"{start:.3f}|"
-                f"{end:.3f}|"
-                f"{speaker}|"
-                f"{text}\n"
-            )
+        file.write("\n")
 
 
 # ============================================================
@@ -676,52 +332,30 @@ def write_final_subtitles(
 
 def main() -> None:
 
-    # --------------------------------------------------------
-    # Aceptamos dos formas:
+    # ========================================================
+    # ARGUMENTOS
     #
-    # 1. Sin argumentos:
-    #    python src/ai_response_validator.py
+    # El workflow actual utiliza:
     #
-    #    Utiliza los nombres estándar del workflow.
+    # python src/ai_response_validator.py ai_response.json
     #
-    # 2. Con argumentos:
-    #    python src/ai_response_validator.py \
-    #        ai_response.json \
-    #        corrected_subtitles.json \
-    #        final_subtitles.txt
-    # --------------------------------------------------------
+    # También permitimos:
+    #
+    # python src/ai_response_validator.py
+    #
+    # En ese caso usamos ai_response.json.
+    #
+    # ========================================================
 
     if len(sys.argv) == 1:
 
-        ai_response_path = "ai_response.json"
-        original_path = "corrected_subtitles.json"
-        output_path = "final_subtitles.txt"
-
-        print(
-            "No se han proporcionado argumentos."
+        input_path = (
+            "ai_response.json"
         )
 
-        print(
-            "Usando archivos estándar:"
-        )
+    elif len(sys.argv) == 2:
 
-        print(
-            f"  AI: {ai_response_path}"
-        )
-
-        print(
-            f"  Original: {original_path}"
-        )
-
-        print(
-            f"  Salida: {output_path}"
-        )
-
-    elif len(sys.argv) == 4:
-
-        ai_response_path = sys.argv[1]
-        original_path = sys.argv[2]
-        output_path = sys.argv[3]
+        input_path = sys.argv[1]
 
     else:
 
@@ -739,9 +373,7 @@ def main() -> None:
 
         print(
             "python src/ai_response_validator.py "
-            "<ai_response.json> "
-            "<corrected_subtitles.json> "
-            "<final_subtitles.txt>"
+            "<ai_response.json>"
         )
 
         sys.exit(1)
@@ -753,107 +385,113 @@ def main() -> None:
         )
 
         print(
-            "PROCESANDO RESPUESTA DE GEMINI"
+            "VALIDANDO RESPUESTA DE GEMINI"
         )
 
         print(
             "========================================"
         )
 
-        ai_response = load_json(
-            ai_response_path
+        print(
+            f"Archivo: {input_path}"
         )
 
-        original_data = load_json(
-            original_path
+        # ----------------------------------------------------
+        # CARGAR
+        # ----------------------------------------------------
+
+        data = load_json(
+            input_path
         )
 
-        original_segments = get_segments(
-            original_data
+        # ----------------------------------------------------
+        # VALIDAR
+        # ----------------------------------------------------
+
+        validate_ai_response(
+            data
         )
+
+        # ----------------------------------------------------
+        # NORMALIZAR
+        # ----------------------------------------------------
+
+        normalized = normalize_ai_response(
+            data
+        )
+
+        # ----------------------------------------------------
+        # INFORMACIÓN
+        # ----------------------------------------------------
+
+        segments = normalized[
+            "segments"
+        ]
 
         print(
-            f"Segmentos originales: "
-            f"{len(original_segments)}"
+            f"Segmentos válidos: "
+            f"{len(segments)}"
         )
 
-        ai_segments = get_segments(
-            ai_response
-        )
+        if segments:
 
-        print(
-            f"Segmentos recibidos de Gemini: "
-            f"{len(ai_segments)}"
-        )
+            first = segments[0]
+            last = segments[-1]
 
-        # ----------------------------------------------------
-        # 1. Construir segmentos finales
-        # ----------------------------------------------------
-
-        final_segments = build_final_segments(
-            ai_response,
-            original_segments,
-        )
-
-        print(
-            f"Segmentos después de Gemini: "
-            f"{len(final_segments)}"
-        )
-
-        # ----------------------------------------------------
-        # 2. DIVIDIR FRASES LARGAS
-        #
-        # IMPORTANTE:
-        # Se hace DESPUÉS de Gemini.
-        #
-        # Así Gemini puede corregir/reagrupar el texto,
-        # pero nunca puede dejar una frase demasiado larga
-        # para el subtítulo final.
-        # ----------------------------------------------------
-
-        final_segments = split_long_subtitles(
-            final_segments,
-            MAX_WORDS_PER_SUBTITLE,
-        )
-
-        print(
-            f"Segmentos después de dividir: "
-            f"{len(final_segments)}"
-        )
-
-        # ----------------------------------------------------
-        # 3. Eliminar duplicados
-        # ----------------------------------------------------
-
-        final_segments = (
-            remove_duplicate_segments(
-                final_segments
+            print(
+                "Primer segmento:"
             )
+
+            print(
+                f"  {first['start']:.3f}s -> "
+                f"{first['end']:.3f}s"
+            )
+
+            print(
+                f"  [{first.get('speaker', 'kuraimure')}] "
+                f"{first['text']}"
+            )
+
+            print(
+                "Último segmento:"
+            )
+
+            print(
+                f"  {last['start']:.3f}s -> "
+                f"{last['end']:.3f}s"
+            )
+
+            print(
+                f"  [{last.get('speaker', 'kuraimure')}] "
+                f"{last['text']}"
+            )
+
+        # ----------------------------------------------------
+        # GUARDAR
+        #
+        # Sobrescribimos el mismo archivo con el JSON
+        # validado y normalizado.
+        # ----------------------------------------------------
+
+        save_json(
+            normalized,
+            input_path,
         )
+
+        # ----------------------------------------------------
+        # ÉXITO
+        # ----------------------------------------------------
 
         print(
-            f"Segmentos finales después "
-            f"de eliminar duplicados: "
-            f"{len(final_segments)}"
+            ""
         )
-
-        # ----------------------------------------------------
-        # 4. Guardar
-        # ----------------------------------------------------
-
-        write_final_subtitles(
-            final_segments,
-            output_path,
-        )
-
-        print("")
 
         print(
             "========================================"
         )
 
         print(
-            "SUBTÍTULOS FINALES CREADOS"
+            "VALIDACIÓN CORRECTA"
         )
 
         print(
@@ -861,20 +499,41 @@ def main() -> None:
         )
 
         print(
-            f"Máximo de palabras simultáneas: "
-            f"{MAX_WORDS_PER_SUBTITLE}"
+            f"Archivo validado: "
+            f"{input_path}"
         )
 
         print(
-            f"Segmentos finales: "
-            f"{len(final_segments)}"
+            f"Segmentos: "
+            f"{len(segments)}"
         )
 
         print(
-            f"Archivo: {output_path}"
+            "La respuesta de Gemini es válida."
         )
 
-    except Exception as error:
+    except json.JSONDecodeError as error:
+
+        print(
+            ""
+        )
+
+        print(
+            "ERROR: El archivo no contiene "
+            "JSON válido."
+        )
+
+        print(
+            f"Detalle: {error}"
+        )
+
+        sys.exit(1)
+
+    except FileNotFoundError as error:
+
+        print(
+            ""
+        )
 
         print(
             f"ERROR: {error}"
@@ -882,6 +541,34 @@ def main() -> None:
 
         sys.exit(1)
 
+    except ValueError as error:
+
+        print(
+            ""
+        )
+
+        print(
+            f"ERROR DE VALIDACIÓN: {error}"
+        )
+
+        sys.exit(1)
+
+    except Exception as error:
+
+        print(
+            ""
+        )
+
+        print(
+            f"ERROR INESPERADO: {error}"
+        )
+
+        sys.exit(1)
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     main()
