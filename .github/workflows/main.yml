@@ -38,6 +38,7 @@ jobs:
       # === PASO ADAPTADO: Pasamos el secreto de cookies que ya tienes guardado ===
       - name: Publicar vídeo de prueba en TikTok
         env:
+          # Le inyectamos el JSON nativo de tu extensión Cookie-Editor que ya tienes
           TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
         run: |
           python src/tiktok_uploader.py \
