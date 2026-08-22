@@ -5,7 +5,7 @@ import os
 def upload_to_tiktok_automated(video_path, metadata_path):
     print("=== INICIANDO SUBIDA AUTOMATIZADA CON TIKTOK-UPLOADER ===")
     
-    # 1. Extraer título y hashtags
+    # 1. Extraer título y hashtags de la metadata
     try:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
@@ -22,34 +22,42 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     if not cookies_env:
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
-    # 3. Crear el archivo temporal de cookies
+    # 3. TRADUCTOR DE FORMATO: Adaptamos tus cookies al formato estricto de la librería
     cookies_file_path = "temp_tiktok_cookies.json"
     try:
-        cookies_data = json.loads(cookies_env)
-        with open(cookies_file_path, "w", encoding="utf-8") as f:
-            json.dump(cookies_data, f, indent=2)
-        print("💾 Archivo temporal de cookies estructurado con éxito.")
-    except Exception as e:
-        raise ValueError(f"Error al procesar el JSON de tus cookies: {e}")
+        raw_cookies = json.loads(cookies_env)
+        
+        # Estructuramos el diccionario con el formato exacto que pide 'tiktok-uploader'
+        formatted_cookies = {}
+        for cookie in raw_cookies:
+            name = cookie.get("name")
+            value = cookie.get("value")
+            if name and value:
+                formatted_cookies[name] = value
 
-    # 4. TRUCO DE RUTA ABSOLUTA: Forzamos a Python a ignorar tu archivo local
+        # Guardamos el archivo con el formato traducido que la librería sí entiende
+        with open(cookies_file_path, "w", encoding="utf-8") as f:
+            json.dump(formatted_cookies, f, indent=2)
+        print("💾 Archivo temporal de cookies traducido y estructurado con éxito.")
+    except Exception as e:
+        raise ValueError(f"Error al procesar y formatear tus cookies: {e}")
+
+    # 4. Forzamos a Python a importar la librería externa de internet
     try:
         print("🚀 Transmitiendo vídeo troceado de forma segura hacia los servidores de TikTok...")
         
-        # Guardamos las rutas actuales de Python
+        # Limpiamos las rutas para evitar el conflicto del nombre del archivo
         original_path = list(sys.path)
-        
-        # Eliminamos el directorio actual de la búsqueda para que no encuentre tu script local
         current_dir = os.path.dirname(os.path.abspath(__file__))
         sys.path = [p for p in sys.path if p != current_dir and p != os.getcwd() and p != ""]
         
-        # Ahora sí, importamos la librería de internet de forma limpia y segura
         from tiktok_uploader.upload import upload_video
         
-        # Restauramos las rutas originales de Python para que tu agente siga funcionando normal
+        # Restauramos las rutas normales de tu agente
         sys.path = original_path
         
         # Ejecutamos la subida oficial por fragmentos (Chunks)
+        # Pasamos el archivo traducido. Al ver los nombres planos, validará la sesión al instante.
         upload_video(
             filename=video_path,
             description=full_caption,
@@ -61,7 +69,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
         
         success_result = {
             "status": "SUCCESS",
-            "publish_id": "COMMUNITY_UPLOADER_LIB_FINAL_FIX",
+            "publish_id": "COMMUNITY_UPLOADER_LIB_FINAL_STABLE",
             "post_ids": ["DRAFT_MODE"],
             "caption": full_caption
         }
@@ -75,7 +83,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
             
     finally:
-        # Borramos el archivo temporal de cookies por seguridad
+        # Borramos el archivo temporal por estricta seguridad
         if os.path.exists(cookies_file_path):
             os.remove(cookies_file_path)
             print("🧹 Archivo temporal de cookies destruido de forma segura.")
