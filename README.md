@@ -28,13 +28,13 @@ Twitch → procesamiento → subtítulos → Telegram → corrección → aproba
 
 - [x] Repositorio GitHub creado
 - [x] GitHub Actions probado
-- [ ] Twitch API
-- [ ] Detección automática de clips
-- [ ] Descarga de clips
-- [ ] Procesamiento de vídeo
-- [ ] Análisis mediante IA
-- [ ] Generación de metadatos
-- [ ] Sistema de aprobación
+- [x] Twitch API
+- [x] Detección automática de clips
+- [x] Descarga de clips
+- [x] Procesamiento de vídeo
+- [x] Análisis mediante IA
+- [x] Generación de metadatos
+- [x] Sistema de aprobación
 - [ ] Generación de hashtags optimizados
 - [ ] Mensaje final de publicación en Telegram
 - [ ] Identificación de hablantes
