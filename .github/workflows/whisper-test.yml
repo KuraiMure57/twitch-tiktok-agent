@@ -185,7 +185,9 @@ jobs:
               )
               sys.exit(1)
 
-          print("Twitch App Access Token válido.")
+          print(
+              "Twitch App Access Token válido."
+          )
 
           print(
               f"Client ID: "
@@ -260,7 +262,6 @@ jobs:
               sys.exit(1)
 
           user = users[0]
-
           user_id = user.get("id")
 
           if not user_id:
@@ -316,7 +317,6 @@ jobs:
           import requests
 
           now = datetime.now(timezone.utc)
-
           seven_days_ago = now - timedelta(days=7)
 
           started_at = seven_days_ago.strftime(
@@ -339,10 +339,8 @@ jobs:
               params={
                   "broadcaster_id":
                   os.environ["TWITCH_BROADCASTER_ID"],
-                  "started_at":
-                  started_at,
-                  "ended_at":
-                  ended_at,
+                  "started_at": started_at,
+                  "ended_at": ended_at,
                   "first": 100,
               },
               headers={
@@ -405,19 +403,39 @@ jobs:
               clips,
               start=1,
           ):
-              print(f"\n--- Clip {index} ---")
-              print(f"ID: {clip.get('id')}")
-              print(f"Título: {clip.get('title')}")
-              print(f"Fecha: {clip.get('created_at')}")
+              print(
+                  f"\n--- Clip {index} ---"
+              )
+
+              print(
+                  f"ID: "
+                  f"{clip.get('id')}"
+              )
+
+              print(
+                  f"Título: "
+                  f"{clip.get('title')}"
+              )
+
+              print(
+                  f"Fecha: "
+                  f"{clip.get('created_at')}"
+              )
+
               print(
                   f"Duración API: "
                   f"{clip.get('duration')} s"
               )
+
               print(
                   f"Vistas: "
                   f"{clip.get('view_count')}"
               )
-              print(f"URL: {clip.get('url')}")
+
+              print(
+                  f"URL: "
+                  f"{clip.get('url')}"
+              )
 
           clip = clips[0]
 
@@ -434,14 +452,26 @@ jobs:
               )
 
           print("")
-          print("CLIP MÁS RECIENTE SELECCIONADO")
-          print(f"ID: {clip.get('id')}")
-          print(f"Título: {clip.get('title')}")
+          print(
+              "CLIP MÁS RECIENTE SELECCIONADO"
+          )
+
+          print(
+              f"ID: {clip.get('id')}"
+          )
+
+          print(
+              f"Título: {clip.get('title')}"
+          )
+
           print(
               f"Duración API: "
               f"{clip.get('duration')} s"
           )
-          print(f"URL: {clip.get('url')}")
+
+          print(
+              f"URL: {clip.get('url')}"
+          )
           PY
 
       - name: Upload Twitch clips information
@@ -483,13 +513,22 @@ jobs:
           print("DESCARGANDO CLIP DE TWITCH")
           print("==============================")
 
-          print(f"ID: {clip.get('id')}")
-          print(f"Título: {clip.get('title')}")
+          print(
+              f"ID: {clip.get('id')}"
+          )
+
+          print(
+              f"Título: {clip.get('title')}"
+          )
+
           print(
               f"Duración API: "
               f"{clip.get('duration')} s"
           )
-          print(f"URL: {clip_url}")
+
+          print(
+              f"URL: {clip_url}"
+          )
 
           subprocess.run(
               [
@@ -518,9 +557,7 @@ jobs:
 
           echo ""
           echo "DURACIÓN REAL:"
-
-          ffprobe \
-            -v error \
+          ffprobe -v error \
             -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 \
             twitch_clip.mp4
@@ -619,21 +656,14 @@ jobs:
                       "language",
                       "es",
                   ),
-              "segments":
-                  segments,
+              "segments": segments,
               "instructions": {
-                  "review_full_audio":
-                      True,
-                  "correct_transcription":
-                      True,
-                  "detect_missing_segments":
-                      True,
-                  "preserve_timestamps":
-                      True,
-                  "never_shift_existing_timestamps":
-                      True,
-                  "return_only_valid_json":
-                      True,
+                  "review_full_audio": True,
+                  "correct_transcription": True,
+                  "detect_missing_segments": True,
+                  "preserve_timestamps": True,
+                  "never_shift_existing_timestamps": True,
+                  "return_only_valid_json": True,
               },
           }
 
@@ -734,7 +764,11 @@ jobs:
           cat final_subtitles.txt
 
       # ============================================================
-      # VÍDEO VERTICAL
+      # CLIP ORIGINAL
+      #
+      # twitch_clip.mp4 YA ES EL CLIP FINAL.
+      #
+      # NO se ejecuta clip_extractor.py.
       # ============================================================
 
       - name: Verify original Twitch clip duration
@@ -750,6 +784,10 @@ jobs:
             twitch_clip.mp4)
 
           echo "Duración original: ${duration}s"
+
+      # ============================================================
+      # VÍDEO VERTICAL
+      # ============================================================
 
       - name: Create vertical TikTok video
         run: |
@@ -847,92 +885,223 @@ jobs:
           cat review_state.json
 
       # ============================================================
-      # PAQUETE FINAL PARA PUBLICACIÓN MANUAL
+      # PUBLICACIÓN MANUAL
+      #
+      # Si se aprueba:
+      #
+      # 1. El vídeo final ya está en Telegram.
+      # 2. El usuario lo descarga desde Telegram.
+      # 3. Este paso manda OTRO mensaje con los datos.
+      #
+      # NO se descarga ningún ZIP.
+      # NO se crea publication_package.
+      # NO se sube nada a TikTok automáticamente.
       # ============================================================
 
-      - name: Prepare publication package
+      - name: Send TikTok publication information
         if: steps.telegram_review.outputs.status == 'approved'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          mkdir -p publication_package
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import requests
 
-          cp final_tiktok.mp4 \
-            publication_package/
+          metadata_file = "metadata.json"
 
-          cp metadata.json \
-            publication_package/
+          try:
+              with open(
+                  metadata_file,
+                  "r",
+                  encoding="utf-8",
+              ) as file:
+                  metadata = json.load(file)
+          except Exception as exc:
+              print(
+                  f"ERROR leyendo {metadata_file}: "
+                  f"{exc}"
+              )
+              sys.exit(1)
 
-          cp review_state.json \
-            publication_package/
+          def find_value(data, keys):
+              if isinstance(data, dict):
+                  for key in keys:
+                      if key in data and data[key] not in (
+                          None,
+                          "",
+                          [],
+                      ):
+                          return data[key]
 
-          cp final_subtitles.txt \
-            publication_package/
+                  for value in data.values():
+                      result = find_value(value, keys)
+                      if result not in (
+                          None,
+                          "",
+                          [],
+                      ):
+                          return result
 
-          cp selected_twitch_clip.json \
-            publication_package/
+              elif isinstance(data, list):
+                  for item in data:
+                      result = find_value(item, keys)
+                      if result not in (
+                          None,
+                          "",
+                          [],
+                      ):
+                          return result
 
-          cat > publication_package/README.txt <<'EOF'
-          PUBLICACIÓN MANUAL EN TIKTOK
-          
-          1. Descarga final_tiktok.mp4
-          2. Sube el vídeo manualmente a TikTok.
-          3. Copia el título/descripción desde metadata.json.
-          4. Copia los hashtags generados en metadata.json.
-          5. Publica manualmente.
-          
-          El vídeo de este paquete es el vídeo aprobado mediante Telegram.
-          EOF
+              return None
 
-      - name: Show publication package
-        if: steps.telegram_review.outputs.status == 'approved'
-        run: |
-          echo "========================================"
-          echo "PAQUETE DE PUBLICACIÓN MANUAL"
-          echo "========================================"
+          title = find_value(
+              metadata,
+              [
+                  "title",
+                  "tiktok_title",
+                  "caption_title",
+              ],
+          )
 
-          ls -lh publication_package/
+          description = find_value(
+              metadata,
+              [
+                  "description",
+                  "caption",
+                  "tiktok_description",
+                  "text",
+              ],
+          )
 
-          echo ""
-          echo "--- metadata.json ---"
-          cat publication_package/metadata.json
+          hashtags = find_value(
+              metadata,
+              [
+                  "hashtags",
+                  "hash_tags",
+                  "tiktok_hashtags",
+              ],
+          )
 
-          echo ""
-          echo "--- review_state.json ---"
-          cat publication_package/review_state.json
+          if title is None:
+              title = "Clip de Twitch"
 
-          echo ""
-          echo "--- README.txt ---"
-          cat publication_package/README.txt
+          if description is None:
+              description = ""
 
-      - name: Upload publication package
-        if: steps.telegram_review.outputs.status == 'approved'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tiktok-publication-package
-          path: publication_package/
-          if-no-files-found: error
+          if isinstance(hashtags, list):
+              hashtags = " ".join(
+                  str(tag)
+                  if str(tag).startswith("#")
+                  else f"#{str(tag)}"
+                  for tag in hashtags
+              )
 
-      # ============================================================
-      # MENSAJE FINAL
-      # ============================================================
+          elif hashtags is None:
+              hashtags = ""
 
-      - name: Show approved publication information
-        if: steps.telegram_review.outputs.status == 'approved'
-        run: |
-          echo "========================================"
-          echo "CLIP APROBADO"
-          echo "========================================"
+          else:
+              hashtags = str(hashtags)
 
-          echo ""
-          echo "El vídeo NO se publicará automáticamente."
-          echo "Debe descargarse y publicarse manualmente en TikTok."
+          title = str(title).strip()
+          description = str(description).strip()
+          hashtags = str(hashtags).strip()
 
-          echo ""
-          echo "La información de publicación está en:"
-          echo "publication_package/metadata.json"
+          message_parts = [
+              "✅ <b>CLIP APROBADO — DATOS PARA TIKTOK</b>",
+              "",
+              "📥 <b>Vídeo:</b>",
+              "El vídeo aprobado está justo en el mensaje anterior. Descárgalo desde Telegram.",
+              "",
+              "📝 <b>Título:</b>",
+              title,
+          ]
 
-          echo ""
-          echo "El vídeo aprobado es:"
-          echo "publication_package/final_tiktok.mp4"
+          if description:
+              message_parts.extend([
+                  "",
+                  "💬 <b>Descripción:</b>",
+                  description,
+              ])
+
+          if hashtags:
+              message_parts.extend([
+                  "",
+                  "🏷️ <b>Hashtags:</b>",
+                  hashtags,
+              ])
+
+          message_parts.extend([
+              "",
+              "📋 <b>Publicación:</b>",
+              "1. Descarga el vídeo del mensaje anterior.",
+              "2. Súbelo manualmente a TikTok.",
+              "3. Copia la información de este mensaje.",
+          ])
+
+          message = "\n".join(message_parts)
+
+          token = os.environ.get(
+              "TELEGRAM_BOT_TOKEN"
+          )
+
+          chat_id = os.environ.get(
+              "TELEGRAM_CHAT_ID"
+          )
+
+          if not token:
+              print(
+                  "ERROR: Falta "
+                  "TELEGRAM_BOT_TOKEN."
+              )
+              sys.exit(1)
+
+          if not chat_id:
+              print(
+                  "ERROR: Falta "
+                  "TELEGRAM_CHAT_ID."
+              )
+              sys.exit(1)
+
+          response = requests.post(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data={
+                  "chat_id": chat_id,
+                  "text": message,
+                  "parse_mode": "HTML",
+                  "disable_web_page_preview": True,
+              },
+              timeout=30,
+          )
+
+          print(
+              "Telegram publication message HTTP: "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200 or not data.get("ok"):
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          print(
+              "Información de publicación "
+              "enviada correctamente a Telegram."
+          )
+          PY
 
       # ============================================================
       # RECHAZADO
@@ -941,10 +1110,4 @@ jobs:
       - name: Report rejected clip
         if: steps.telegram_review.outputs.status == 'rejected'
         run: |
-          echo "========================================"
-          echo "CLIP RECHAZADO"
-          echo "========================================"
-
-          echo ""
           echo "El clip ha sido descartado desde Telegram."
-          echo "No se generará ningún paquete de publicación."
