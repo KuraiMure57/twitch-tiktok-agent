@@ -1,6 +1,3 @@
-from pathlib import Path
-
-
 # ============================================================
 # CONFIGURACIÓN DE COLORES POR PERSONA
 # ============================================================
@@ -10,37 +7,59 @@ from pathlib import Path
 # Formato:
 #   (R, G, B)
 #
-# Puedes cambiar los colores sin tocar el resto del código.
-#
 # ============================================================
 
-SPEAKER_STYLES = {
-    # Tú
-    "kuraimure": {
-        "outline": (0, 0, 0),
-    },
 
-    # Segunda persona
-    "speaker_2": {
+SPEAKER_STYLES = {
+
+    # --------------------------------------------------------
+    # TU VOZ
+    # --------------------------------------------------------
+    #
+    # Tu voz debe aparecer con borde AZUL.
+    #
+    "kuraimure": {
         "outline": (0, 102, 255),
     },
 
-    # Tercera persona
+    # --------------------------------------------------------
+    # SEGUNDA PERSONA
+    # --------------------------------------------------------
+    #
+    # Speaker 2 debe aparecer con borde NEGRO.
+    #
+    "speaker_2": {
+        "outline": (0, 0, 0),
+    },
+
+    # --------------------------------------------------------
+    # TERCERA PERSONA
+    # --------------------------------------------------------
+
     "speaker_3": {
         "outline": (255, 0, 0),
     },
 
-    # Cuarta persona
+    # --------------------------------------------------------
+    # CUARTA PERSONA
+    # --------------------------------------------------------
+
     "speaker_4": {
         "outline": (0, 180, 0),
     },
 
-    # Quinta persona
+    # --------------------------------------------------------
+    # QUINTA PERSONA
+    # --------------------------------------------------------
+
     "speaker_5": {
         "outline": (180, 0, 180),
     },
 
-    # Sexta persona
+    # --------------------------------------------------------
+    # SEXTA PERSONA
+    # --------------------------------------------------------
+
     "speaker_6": {
         "outline": (255, 140, 0),
     },
@@ -50,7 +69,10 @@ SPEAKER_STYLES = {
 DEFAULT_SPEAKER = "kuraimure"
 
 
-def get_speaker_style(speaker: str) -> dict:
+def get_speaker_style(
+    speaker: str,
+) -> dict:
+
     """
     Devuelve el estilo correspondiente al hablante.
 
@@ -59,9 +81,12 @@ def get_speaker_style(speaker: str) -> dict:
     """
 
     if not speaker:
+
         speaker = DEFAULT_SPEAKER
 
     return SPEAKER_STYLES.get(
         speaker,
-        SPEAKER_STYLES[DEFAULT_SPEAKER],
+        SPEAKER_STYLES[
+            DEFAULT_SPEAKER
+        ],
     )
