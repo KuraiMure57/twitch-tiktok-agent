@@ -44,82 +44,68 @@ def upload_to_tiktok(video_path, metadata_path):
         print(f"❌ Error al procesar el JSON de las cookies: {e}")
         cookies = None
 
-    # 3. Automatización del navegador con técnicas de evasión avanzada
+    # 3. Automatización del navegador con contexto persistente (Camuflaje de PC real)
     try:
         with sync_playwright() as p:
-            print("Iniciando navegador virtual en modo VENTANA REAL (headless=False) camuflado...")
+            print("Iniciando navegador virtual con perfil persistente de usuario...")
             
-            # Forzamos headless=False. Al usar xvfb-run en GitHub Actions, la ventana
-            # se renderiza en el monitor virtual de Linux sin dar errores visuales.
-            browser = p.chromium.launch(
-                headless=False,
+            # Creamos un directorio temporal en el servidor para simular el almacenamiento de un navegador real
+            user_data_dir = os.path.join(os.getcwd(), "tiktok_user_data")
+            
+            context = p.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=False, # Modo ventana real (dentro de xvfb)
                 args=[
-                    "--disable-blink-features=AutomationControlled", # Oculta la marca de robot
+                    "--disable-blink-features=AutomationControlled", # Esconde la bandera de webdriver
                     "--disable-infobars",
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
-                    "--use-fake-ui-for-media-stream"
-                ]
-            )
-            
-            context = browser.new_context(
+                    "--no-first-run",
+                ],
                 viewport={"width": 1366, "height": 768},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 locale="es-ES",
                 timezone_id="Europe/Madrid"
             )
             
-            # Camuflaje extra borrando el rastro de la automatización en el navegador
-            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            # Forzamos la desactivación de la propiedad robot en la ventana
+            page = context.pages[0] if context.pages else context.new_page()
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             
-            print("Inyectando cookies de sesión...")
+            print("Inyectando cookies de sesión en el perfil activo...")
             context.add_cookies(cookies)
-            page = context.new_page()
 
             print("Entrando a la página de carga de TikTok Studio...")
             page.goto("https://tiktok.com", wait_until="commit")
             
-            print("Esperando estabilización de scripts internos...")
+            print("Esperando estabilización de la interfaz de carga...")
             time.sleep(15)
 
-            # Comprobación de seguridad de login
+            # Comprobación de seguridad: Ver si nos echó a la pantalla de Login
             if "login" in page.url or "passive_login" in page.url:
                 print("❌ ERROR: TikTok nos redirigió a la página de Login. Las cookies han caducado.")
                 page.screenshot(path="debug_tiktok.png")
                 raise Exception("Sesión no iniciada. Cookies inválidas o expiradas.")
 
-            # Simulación de interacción humana básica para disparar la carga de la interfaz
-            print("Simulando clics e interacciones de usuario en la pantalla...")
-            try:
-                page.mouse.move(300, 300)
-                time.sleep(1)
-                page.mouse.click(300, 300) # Clic de cortesía en zona segura de la web
-                time.sleep(3)
-            except Exception as e:
-                print(f"⚠️ Nota: No se completó la interacción simulada: {e}")
+            # Hacemos una captura preventiva para ver qué está cargando exactamente la web
+            page.screenshot(path="debug_tiktok.png")
 
             print("Buscando la zona de carga de archivos...")
             file_input = None
-            
-            # Intento de localización iterativo y resistente
             try:
-                # Esperamos un margen prudencial a que el selector aparezca integrado
-                page.wait_for_selector('input[type="file"]', timeout=25000)
+                page.wait_for_selector('input[type="file"]', timeout=20000)
                 file_input = page.locator('input[type="file"]').first
                 print("✅ Zona de carga localizada con éxito en el documento raíz.")
             except Exception:
-                print("⚠️ No se encontró en la raíz. Escaneando estructuras dinámicas anidadas...")
-                # Inspección de frames por si la interfaz está incrustada
+                print("⚠️ No se encontró en la raíz. Escaneando marcos secundarios...")
                 for frame in page.frames:
                     if frame.locator('input[type="file"]').count() > 0:
                         file_input = frame.locator('input[type="file"]').first
-                        print(f"✅ Zona de carga localizada en el marco secundario: {frame.url}")
+                        print(f"✅ Zona de carga localizada en el sub-frame: {frame.url}")
                         break
 
             if not file_input:
-                print("❌ ERROR CRÍTICO: No se localizó el cargador de vídeos en la web.")
-                print("📸 Actualizando captura de pantalla 'debug_tiktok.png'...")
-                page.screenshot(path="debug_tiktok.png")
+                print("❌ ERROR CRÍTICO: No se localizó el casillero de carga de vídeos.")
                 raise Exception("Bloqueo de seguridad persistente o cambio de interfaz estructural.")
 
             print(f"Subiendo archivo de vídeo: {video_path}")
@@ -146,7 +132,7 @@ def upload_to_tiktok(video_path, metadata_path):
             page.wait_for_selector("text=Cargado correctamente", timeout=30000)
             print("🚀 ¡ÉXITO COMPLETO! Clip subido y disponible en tus borradores públicos de TikTok.")
             
-            browser.close()
+            context.close()
 
             success_result = {
                 "status": "SUCCESS",
