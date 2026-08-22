@@ -68,8 +68,6 @@ def validate_segments(
     segments: list,
 ) -> None:
 
-    previous_end = None
-
     for index, segment in enumerate(
         segments,
         start=1,
@@ -149,29 +147,10 @@ def validate_segments(
         if end <= start:
             raise ValueError(
                 f"Segmento {index}: "
-                f"'end' debe ser mayor que 'start'. "
+                f"'end' debe ser mayor que "
+                f"'start'. "
                 f"({start} -> {end})"
             )
-
-        # ----------------------------------------------------
-        # ORDEN TEMPORAL
-        # ----------------------------------------------------
-
-        if (
-            previous_end is not None
-            and start < previous_end
-        ):
-
-            raise ValueError(
-                f"Segmento {index}: "
-                f"los timestamps se solapan con "
-                f"el segmento anterior. "
-                f"Anterior termina en "
-                f"{previous_end:.3f}s y este empieza "
-                f"en {start:.3f}s."
-            )
-
-        previous_end = end
 
         # ----------------------------------------------------
         # TEXTO
@@ -197,9 +176,8 @@ def validate_segments(
         # ----------------------------------------------------
         # SPEAKER
         #
-        # No lo hacemos obligatorio porque Gemini puede
-        # devolver segmentos sin speaker y el handler
-        # utilizará kuraimure como fallback.
+        # No es obligatorio porque el handler dispone
+        # de un fallback a kuraimure.
         # ----------------------------------------------------
 
         if "speaker" in segment:
@@ -234,10 +212,8 @@ def validate_ai_response(
         data
     )
 
-    segments = data["segments"]
-
     validate_segments(
-        segments
+        data["segments"]
     )
 
 
@@ -293,6 +269,23 @@ def normalize_ai_response(
             normalized_segment
         )
 
+    # --------------------------------------------------------
+    # ORDENAR POR INICIO
+    #
+    # IMPORTANTE:
+    # NO eliminamos solapamientos.
+    #
+    # En conversaciones dos speakers pueden hablar
+    # simultáneamente.
+    # --------------------------------------------------------
+
+    normalized_segments.sort(
+        key=lambda segment: (
+            segment["start"],
+            segment["end"],
+        )
+    )
+
     normalized["segments"] = (
         normalized_segments
     )
@@ -301,7 +294,7 @@ def normalize_ai_response(
 
 
 # ============================================================
-# GUARDAR JSON NORMALIZADO
+# GUARDAR JSON
 # ============================================================
 
 def save_json(
@@ -327,6 +320,95 @@ def save_json(
 
 
 # ============================================================
+# MOSTRAR INFORMACIÓN DE SOLAPAMIENTOS
+# ============================================================
+
+def show_overlaps(
+    segments: list,
+) -> None:
+
+    overlaps = []
+
+    for index in range(
+        1,
+        len(segments),
+    ):
+
+        previous = segments[index - 1]
+        current = segments[index]
+
+        previous_end = float(
+            previous["end"]
+        )
+
+        current_start = float(
+            current["start"]
+        )
+
+        if current_start < previous_end:
+
+            overlaps.append(
+                (
+                    index,
+                    previous,
+                    current,
+                )
+            )
+
+    if not overlaps:
+        return
+
+    print("")
+    print(
+        "========================================"
+    )
+    print(
+        "SOLAPAMIENTOS DETECTADOS"
+    )
+    print(
+        "========================================"
+    )
+
+    print(
+        "Se permiten porque pueden corresponder "
+        "a dos speakers hablando simultáneamente."
+    )
+
+    for (
+        index,
+        previous,
+        current,
+    ) in overlaps:
+
+        previous_speaker = previous.get(
+            "speaker",
+            "kuraimure",
+        )
+
+        current_speaker = current.get(
+            "speaker",
+            "kuraimure",
+        )
+
+        print("")
+        print(
+            f"Segmentos {index} y {index + 1}:"
+        )
+
+        print(
+            f"  [{previous_speaker}] "
+            f"{float(previous['start']):.3f}s -> "
+            f"{float(previous['end']):.3f}s"
+        )
+
+        print(
+            f"  [{current_speaker}] "
+            f"{float(current['start']):.3f}s -> "
+            f"{float(current['end']):.3f}s"
+        )
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -335,15 +417,13 @@ def main() -> None:
     # ========================================================
     # ARGUMENTOS
     #
-    # El workflow actual utiliza:
-    #
-    # python src/ai_response_validator.py ai_response.json
-    #
-    # También permitimos:
+    # Permitimos:
     #
     # python src/ai_response_validator.py
     #
-    # En ese caso usamos ai_response.json.
+    # y:
+    #
+    # python src/ai_response_validator.py ai_response.json
     #
     # ========================================================
 
@@ -420,13 +500,35 @@ def main() -> None:
             data
         )
 
+        segments = normalized[
+            "segments"
+        ]
+
+        # ----------------------------------------------------
+        # MOSTRAR SOLAPAMIENTOS
+        #
+        # Solo informativo.
+        # NO provocan fallo.
+        # ----------------------------------------------------
+
+        show_overlaps(
+            segments
+        )
+
         # ----------------------------------------------------
         # INFORMACIÓN
         # ----------------------------------------------------
 
-        segments = normalized[
-            "segments"
-        ]
+        print("")
+        print(
+            "========================================"
+        )
+        print(
+            "RESPUESTA VÁLIDA"
+        )
+        print(
+            "========================================"
+        )
 
         print(
             f"Segmentos válidos: "
@@ -438,6 +540,7 @@ def main() -> None:
             first = segments[0]
             last = segments[-1]
 
+            print("")
             print(
                 "Primer segmento:"
             )
@@ -452,6 +555,7 @@ def main() -> None:
                 f"{first['text']}"
             )
 
+            print("")
             print(
                 "Último segmento:"
             )
@@ -468,9 +572,6 @@ def main() -> None:
 
         # ----------------------------------------------------
         # GUARDAR
-        #
-        # Sobrescribimos el mismo archivo con el JSON
-        # validado y normalizado.
         # ----------------------------------------------------
 
         save_json(
@@ -478,46 +579,30 @@ def main() -> None:
             input_path,
         )
 
-        # ----------------------------------------------------
-        # ÉXITO
-        # ----------------------------------------------------
-
-        print(
-            ""
-        )
-
+        print("")
         print(
             "========================================"
         )
-
         print(
             "VALIDACIÓN CORRECTA"
         )
-
         print(
             "========================================"
         )
 
         print(
-            f"Archivo validado: "
+            f"Archivo guardado: "
             f"{input_path}"
         )
 
         print(
-            f"Segmentos: "
-            f"{len(segments)}"
-        )
-
-        print(
-            "La respuesta de Gemini es válida."
+            "Los solapamientos entre speakers "
+            "se conservan."
         )
 
     except json.JSONDecodeError as error:
 
-        print(
-            ""
-        )
-
+        print("")
         print(
             "ERROR: El archivo no contiene "
             "JSON válido."
@@ -531,10 +616,7 @@ def main() -> None:
 
     except FileNotFoundError as error:
 
-        print(
-            ""
-        )
-
+        print("")
         print(
             f"ERROR: {error}"
         )
@@ -543,10 +625,7 @@ def main() -> None:
 
     except ValueError as error:
 
-        print(
-            ""
-        )
-
+        print("")
         print(
             f"ERROR DE VALIDACIÓN: {error}"
         )
@@ -555,10 +634,7 @@ def main() -> None:
 
     except Exception as error:
 
-        print(
-            ""
-        )
-
+        print("")
         print(
             f"ERROR INESPERADO: {error}"
         )
