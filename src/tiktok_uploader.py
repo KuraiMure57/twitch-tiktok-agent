@@ -22,54 +22,51 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     if not cookies_env:
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
-    # 3. TRADUCTOR DE FORMATO: Adaptamos tus cookies al formato estricto de la librería
-    cookies_file_path = "temp_tiktok_cookies.json"
+    # 3. TRADUCTOR DE FORMATO EN MEMORIA: Extraemos los valores clave
     try:
         raw_cookies = json.loads(cookies_env)
         
-        # Estructuramos el diccionario con el formato exacto que pide 'tiktok-uploader'
-        formatted_cookies = {}
+        # Mapeamos los nombres y valores directamente a un diccionario de sesión de Python
+        session_cookies = {}
         for cookie in raw_cookies:
             name = cookie.get("name")
             value = cookie.get("value")
             if name and value:
-                formatted_cookies[name] = value
-
-        # Guardamos el archivo con el formato traducido que la librería sí entiende
-        with open(cookies_file_path, "w", encoding="utf-8") as f:
-            json.dump(formatted_cookies, f, indent=2)
-        print("💾 Archivo temporal de cookies traducido y estructurado con éxito.")
-    except Exception as e:
-        raise ValueError(f"Error al procesar y formatear tus cookies: {e}")
-
-    # 4. Forzamos a Python a importar la librería externa de internet
-    try:
-        print("🚀 Transmitiendo vídeo troceado de forma segura hacia los servidores de TikTok...")
+                session_cookies[name] = value
         
-        # Limpiamos las rutas para evitar el conflicto del nombre del archivo
+        print("✅ Diccionario de autenticación estructurado en memoria correctamente.")
+    except Exception as e:
+        raise ValueError(f"Error al procesar el JSON de tus cookies: {e}")
+
+    # 4. Ajuste estricto de rutas de Python e invocación nativa en memoria
+    try:
+        print("🚀 Conectando de forma directa con los servidores de ingesta de TikTok...")
+        
+        # Salvaguardamos los paths para evitar el conflicto del nombre de tu archivo
         original_path = list(sys.path)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         sys.path = [p for p in sys.path if p != current_dir and p != os.getcwd() and p != ""]
         
+        # Importamos de forma limpia el módulo principal de subidas de internet
         from tiktok_uploader.upload import upload_video
         
-        # Restauramos las rutas normales de tu agente
+        # Restauramos las rutas estándar de tu agente de IA
         sys.path = original_path
         
         # Ejecutamos la subida oficial por fragmentos (Chunks)
-        # Pasamos el archivo traducido. Al ver los nombres planos, validará la sesión al instante.
+        # Pasamos el diccionario plano 'session_cookies' directamente al parámetro cookies
         upload_video(
             filename=video_path,
             description=full_caption,
-            cookies=cookies_file_path,
+            cookies=session_cookies, # 👈 Inyección directa en memoria sin archivos de texto intermediarios
             headless=True
         )
         
-        print("✅ ¡VÍDEO ENVIADO CON ÉXITO! Comprueba la carpeta de borradores de tu móvil.")
+        print("✅ ¡VÍDEO PROCESADO CON ÉXITO! Comprueba la carpeta de borradores de tu móvil.")
         
         success_result = {
             "status": "SUCCESS",
-            "publish_id": "COMMUNITY_UPLOADER_LIB_FINAL_STABLE",
+            "publish_id": "COMMUNITY_UPLOADER_DIRECT_MEMORY",
             "post_ids": ["DRAFT_MODE"],
             "caption": full_caption
         }
@@ -77,16 +74,10 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             json.dump(success_result, f, ensure_ascii=False, indent=2)
 
     except Exception as e:
-        print(f"❌ Error durante el proceso automatizado de subida: {e}")
+        print(f"❌ Error durante el proceso de transferencia: {e}")
         fail_result = {"status": f"FAILED: {str(e)}", "caption": full_caption}
         with open("tiktok_result.json", "w", encoding="utf-8") as f:
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
-            
-    finally:
-        # Borramos el archivo temporal por estricta seguridad
-        if os.path.exists(cookies_file_path):
-            os.remove(cookies_file_path)
-            print("🧹 Archivo temporal de cookies destruido de forma segura.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
