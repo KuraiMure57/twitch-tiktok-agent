@@ -1,12 +1,11 @@
 import sys
 import json
 import os
-import importlib
 
 def upload_to_tiktok_automated(video_path, metadata_path):
     print("=== INICIANDO SUBIDA AUTOMATIZADA CON TIKTOK-UPLOADER ===")
     
-    # 1. Extraer título y hashtags de la metadata de tu IA
+    # 1. Extraer título y hashtags
     try:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
@@ -23,7 +22,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     if not cookies_env:
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
-    # 3. Crear un archivo temporal de cookies en el servidor de GitHub Actions
+    # 3. Crear el archivo temporal de cookies
     cookies_file_path = "temp_tiktok_cookies.json"
     try:
         cookies_data = json.loads(cookies_env)
@@ -33,13 +32,22 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     except Exception as e:
         raise ValueError(f"Error al procesar el JSON de tus cookies: {e}")
 
-    # 4. Carga absoluta de la librería para evitar el error de nombres
+    # 4. TRUCO DE RUTA ABSOLUTA: Forzamos a Python a ignorar tu archivo local
     try:
         print("🚀 Transmitiendo vídeo troceado de forma segura hacia los servidores de TikTok...")
         
-        # Este truco obliga a Python a buscar el paquete descargado y no tu propio archivo
-        tiktok_lib = importlib.import_module("tiktok_uploader.upload")
-        upload_video = getattr(tiktok_lib, "upload_video")
+        # Guardamos las rutas actuales de Python
+        original_path = list(sys.path)
+        
+        # Eliminamos el directorio actual de la búsqueda para que no encuentre tu script local
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path = [p for p in sys.path if p != current_dir and p != os.getcwd() and p != ""]
+        
+        # Ahora sí, importamos la librería de internet de forma limpia y segura
+        from tiktok_uploader.upload import upload_video
+        
+        # Restauramos las rutas originales de Python para que tu agente siga funcionando normal
+        sys.path = original_path
         
         # Ejecutamos la subida oficial por fragmentos (Chunks)
         upload_video(
@@ -53,7 +61,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
         
         success_result = {
             "status": "SUCCESS",
-            "publish_id": "COMMUNITY_UPLOADER_LIB_FINAL",
+            "publish_id": "COMMUNITY_UPLOADER_LIB_FINAL_FIX",
             "post_ids": ["DRAFT_MODE"],
             "caption": full_caption
         }
@@ -67,7 +75,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
             
     finally:
-        # Por estricta seguridad borramos el archivo de cookies del servidor al acabar
+        # Borramos el archivo temporal de cookies por seguridad
         if os.path.exists(cookies_file_path):
             os.remove(cookies_file_path)
             print("🧹 Archivo temporal de cookies destruido de forma segura.")
