@@ -21,7 +21,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # Creamos tus metadatos de prueba igual que antes
+      # Creamos tus metadatos de prueba
       - name: Crear metadata de prueba
         run: |
           cat > metadata.json <<'EOF'
@@ -35,10 +35,10 @@ jobs:
           }
           EOF
 
-      # === PASO MODIFICADO: Inyectamos el SESSION_ID ===
+      # === PASO ADAPTADO: Pasamos el secreto de cookies que ya tienes guardado ===
       - name: Publicar vídeo de prueba en TikTok
         env:
-          TIKTOK_SESSION_ID: ${{ secrets.TIKTOK_SESSION_ID }}
+          TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
         run: |
           python src/tiktok_uploader.py \
             src/tiktok_test.mp4 \
