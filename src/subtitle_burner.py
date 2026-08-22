@@ -43,21 +43,20 @@ PROFANITY_WORDS = {
 # CONFIGURACIÓN VISUAL DE SUBTÍTULOS
 # ---------------------------------------------------------
 #
-# El vídeo es vertical 1080x1920.
+# Vídeo vertical 1080x1920.
 #
-# 18 era demasiado pequeño para TikTok.
-# 48 proporciona una lectura mucho más cómoda
-# manteniendo suficiente espacio para varias palabras.
+# El tamaño anterior era 56.
+# Lo aumentamos aproximadamente al doble visual:
+# 110.
 #
-# Si posteriormente queremos hacerlo todavía más grande,
-# podemos probar 52 o 56.
+# Mantenemos la posición centrada en la parte inferior.
 # ---------------------------------------------------------
 
 SUBTITLE_FONT_NAME = "Arial"
-SUBTITLE_FONT_SIZE = 56
+SUBTITLE_FONT_SIZE = 110
 
-SUBTITLE_OUTLINE = 4
-SUBTITLE_SHADOW = 1
+SUBTITLE_OUTLINE = 6
+SUBTITLE_SHADOW = 2
 
 SUBTITLE_MARGIN_LEFT = 60
 SUBTITLE_MARGIN_RIGHT = 60
@@ -197,14 +196,6 @@ def create_ass(
                 3,
             )
 
-            # -----------------------------------------------
-            # FORMATO ANTIGUO
-            # -----------------------------------------------
-            #
-            # start|end|text
-            #
-            # -----------------------------------------------
-
             if len(parts) == 3:
 
                 original_start = float(
@@ -218,14 +209,6 @@ def create_ass(
                 speaker = DEFAULT_SPEAKER
 
                 text = parts[2].strip()
-
-            # -----------------------------------------------
-            # FORMATO NUEVO
-            # -----------------------------------------------
-            #
-            # start|end|speaker|text
-            #
-            # -----------------------------------------------
 
             elif len(parts) == 4:
 
@@ -287,10 +270,6 @@ def create_ass(
                     censored_text,
                 )
             )
-
-    # -------------------------------------------------------
-    # CREAR ASS
-    # -------------------------------------------------------
 
     with output_file.open(
         "w",
@@ -504,6 +483,12 @@ def burn_subtitles(
         str(video_file),
         "-vf",
         video_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
         "-c:a",
         "copy",
         str(output_file),
