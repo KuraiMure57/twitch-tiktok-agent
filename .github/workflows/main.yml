@@ -16,11 +16,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias de Python
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install playwright
 
+      # === PASO NUEVO: Instalar el navegador invisible en el servidor ===
+      - name: Instalar navegador de Playwright
+        run: |
+          playwright install chromium --with-deps
+
+      # Creas tus metadatos de prueba igual que antes
       - name: Crear metadata de prueba
         run: |
           cat > metadata.json <<'EOF'
@@ -34,16 +40,16 @@ jobs:
           }
           EOF
 
+      # Ejecutamos el script pasando el secreto de las COOKIES
       - name: Publicar vídeo de prueba en TikTok
         env:
-          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
         run: |
           python src/tiktok_uploader.py \
             src/tiktok_test.mp4 \
             metadata.json
 
+      # Este paso lo dejamos para que compruebe si tu script generó el reporte final
       - name: Mostrar resultado de publicación
         if: always()
         run: |
