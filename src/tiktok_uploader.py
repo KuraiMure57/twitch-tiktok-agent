@@ -1,12 +1,12 @@
 import sys
 import json
 import os
-from tiktok_uploader.upload import upload_video
+import importlib
 
 def upload_to_tiktok_automated(video_path, metadata_path):
     print("=== INICIANDO SUBIDA AUTOMATIZADA CON TIKTOK-UPLOADER ===")
     
-    # 1. Extraer título y hashtags
+    # 1. Extraer título y hashtags de la metadata de tu IA
     try:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
@@ -23,8 +23,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     if not cookies_env:
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
-    # 3. Crear un archivo temporal de cookies en el servidor de GitHub Actions.
-    # La librería necesita leer las cookies desde un archivo físico de texto plano.
+    # 3. Crear un archivo temporal de cookies en el servidor de GitHub Actions
     cookies_file_path = "temp_tiktok_cookies.json"
     try:
         cookies_data = json.loads(cookies_env)
@@ -34,13 +33,15 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     except Exception as e:
         raise ValueError(f"Error al procesar el JSON de tus cookies: {e}")
 
-    # 4. Lanzar la subida por fragmentos nativa (Garantiza que aparezca en tu móvil)
+    # 4. Carga absoluta de la librería para evitar el error de nombres
     try:
         print("🚀 Transmitiendo vídeo troceado de forma segura hacia los servidores de TikTok...")
         
-        # Ejecutamos la función de la librería oficial
-        # - Usamos headless=True para que corra ligero en GitHub
-        # - Pasamos la descripción completa de tu IA
+        # Este truco obliga a Python a buscar el paquete descargado y no tu propio archivo
+        tiktok_lib = importlib.import_module("tiktok_uploader.upload")
+        upload_video = getattr(tiktok_lib, "upload_video")
+        
+        # Ejecutamos la subida oficial por fragmentos (Chunks)
         upload_video(
             filename=video_path,
             description=full_caption,
@@ -50,10 +51,9 @@ def upload_to_tiktok_automated(video_path, metadata_path):
         
         print("✅ ¡VÍDEO ENVIADO CON ÉXITO! Comprueba la carpeta de borradores de tu móvil.")
         
-        # Escribimos el reporte final para tu Workflow
         success_result = {
             "status": "SUCCESS",
-            "publish_id": "COMMUNITY_UPLOADER_LIB",
+            "publish_id": "COMMUNITY_UPLOADER_LIB_FINAL",
             "post_ids": ["DRAFT_MODE"],
             "caption": full_caption
         }
@@ -67,7 +67,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
             
     finally:
-        # Por seguridad borramos el archivo de cookies del servidor al terminar
+        # Por estricta seguridad borramos el archivo de cookies del servidor al acabar
         if os.path.exists(cookies_file_path):
             os.remove(cookies_file_path)
             print("🧹 Archivo temporal de cookies destruido de forma segura.")
