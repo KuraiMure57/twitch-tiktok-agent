@@ -1,3 +1,4 @@
 openai-whisper
 google-genai
 requests>=2.31.0
+tiktok-uploader>=0.8.0
