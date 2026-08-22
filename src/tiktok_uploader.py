@@ -5,7 +5,7 @@ import os
 def upload_to_tiktok_automated(video_path, metadata_path):
     print("=== INICIANDO SUBIDA AUTOMATIZADA CON TIKTOK-UPLOADER ===")
     
-    # 1. Extraer título y hashtags de la metadata
+    # 1. Extraer título y hashtags
     try:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
@@ -14,7 +14,7 @@ def upload_to_tiktok_automated(video_path, metadata_path):
         full_caption = f"{title} {hashtags}"
         print(f"Texto configurado para el vídeo: {full_caption}")
     except Exception as e:
-        print(f"Error al leer metadata (usando texto por defecto): {e}")
+        print(f"Error al leer metadata: {e}")
         full_caption = "Prueba de publicación #twitch"
 
     # 2. Recuperar el secreto de las cookies de tu GitHub
@@ -22,51 +22,67 @@ def upload_to_tiktok_automated(video_path, metadata_path):
     if not cookies_env:
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
-    # 3. TRADUCTOR DE FORMATO EN MEMORIA: Extraemos los valores clave
+    # 3. CONVERTIDOR ESTRICTO A FORMATO NETSCAPE (El que exige la librería)
+    cookies_file_path = "cookies_netscape.txt"
     try:
         raw_cookies = json.loads(cookies_env)
         
-        # Mapeamos los nombres y valores directamente a un diccionario de sesión de Python
-        session_cookies = {}
-        for cookie in raw_cookies:
-            name = cookie.get("name")
-            value = cookie.get("value")
-            if name and value:
-                session_cookies[name] = value
-        
-        print("✅ Diccionario de autenticación estructurado en memoria correctamente.")
+        # Escribimos las cabeceras estándar de un archivo Netscape cookies
+        with open(cookies_file_path, "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            f.write("# http://haxx.se\n")
+            f.write("# This is a generated file! Do not edit.\n\n")
+            
+            for cookie in raw_cookies:
+                domain = cookie.get("domain", ".tiktok.com")
+                # Aseguramos formato correcto de banderas booleanas para Netscape
+                flag = "TRUE" if domain.startswith(".") else "FALSE"
+                path = cookie.get("path", "/")
+                secure = "TRUE" if cookie.get("secure", False) else "FALSE"
+                # Expiración por defecto si no viene dada
+                expiration = str(int(cookie.get("expiration", 0)))
+                if expiration == "0":
+                    expiration = str(int(cookie.get("expiry", 0)))
+                if expiration == "0":
+                    expiration = str(int(sys.maxsize / 100000000)) # Tiempo lejano futuro
+                    
+                name = cookie.get("name")
+                value = cookie.get("value")
+                
+                if name and value:
+                    # Estructura de pestañas separadas por tabuladores (\t) obligatoria
+                    f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n")
+                    
+        print("💾 Archivo temporal convertido a formato Netscape cookies (.txt) con éxito.")
     except Exception as e:
-        raise ValueError(f"Error al procesar el JSON de tus cookies: {e}")
+        raise ValueError(f"Error al convertir cookies al formato Netscape: {e}")
 
-    # 4. Ajuste estricto de rutas de Python e invocación nativa en memoria
+    # 4. Ajuste de rutas e invocación de la librería externa
     try:
-        print("🚀 Conectando de forma directa con los servidores de ingesta de TikTok...")
+        print("🚀 Enviando vídeo troceado hacia la cola de ingesta de TikTok...")
         
-        # Salvaguardamos los paths para evitar el conflicto del nombre de tu archivo
+        # Evitamos el conflicto del nombre local limpiando sys.path
         original_path = list(sys.path)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         sys.path = [p for p in sys.path if p != current_dir and p != os.getcwd() and p != ""]
         
-        # Importamos de forma limpia el módulo principal de subidas de internet
         from tiktok_uploader.upload import upload_video
         
-        # Restauramos las rutas estándar de tu agente de IA
         sys.path = original_path
         
-        # Ejecutamos la subida oficial por fragmentos (Chunks)
-        # Pasamos el diccionario plano 'session_cookies' directamente al parámetro cookies
+        # Ejecutamos la subida oficial pasándole la ruta del archivo de texto plano creado
         upload_video(
             filename=video_path,
             description=full_caption,
-            cookies=session_cookies, # 👈 Inyección directa en memoria sin archivos de texto intermediarios
+            cookies=cookies_file_path, # 👈 Ruta del archivo .txt compatible
             headless=True
         )
         
-        print("✅ ¡VÍDEO PROCESADO CON ÉXITO! Comprueba la carpeta de borradores de tu móvil.")
+        print("✅ ¡VÍDEO ENVIADO CON ÉXITO! Comprueba tu cuenta en unos minutos.")
         
         success_result = {
             "status": "SUCCESS",
-            "publish_id": "COMMUNITY_UPLOADER_DIRECT_MEMORY",
+            "publish_id": "COMMUNITY_UPLOADER_NETSCAPE_TXT",
             "post_ids": ["DRAFT_MODE"],
             "caption": full_caption
         }
@@ -74,13 +90,19 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             json.dump(success_result, f, ensure_ascii=False, indent=2)
 
     except Exception as e:
-        print(f"❌ Error durante el proceso de transferencia: {e}")
+        print(f"❌ Error durante la ejecución del proceso: {e}")
         fail_result = {"status": f"FAILED: {str(e)}", "caption": full_caption}
         with open("tiktok_result.json", "w", encoding="utf-8") as f:
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
+            
+    finally:
+        # Limpieza del archivo creado por seguridad
+        if os.path.exists(cookies_file_path):
+            os.remove(cookies_file_path)
+            print("🧹 Archivo cookies_netscape.txt eliminado con éxito.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Uso: python tiktok_uploader.py <ruta_video> <ruta_metadata>")
         sys.exit(1)
-    upload_to_tiktok_automated(sys.argv[1], sys.argv[2])
+    upload_to_tiktok_automated(sys.argv, sys.argv)
