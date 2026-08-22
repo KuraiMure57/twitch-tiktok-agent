@@ -177,21 +177,21 @@ IMPORTANTE:
 
 Ejemplo:
 
-{
+{{
   "start": 1.56,
   "end": 2.08,
   "text": "¡Mira eso!",
   "speaker": "kuraimure"
-}
+}}
 
 Otro ejemplo:
 
-{
+{{
   "start": 2.10,
   "end": 3.50,
   "text": "¿Pero qué ha pasado?",
   "speaker": "speaker_2"
-}
+}}
 
 Ejemplo:
 
@@ -429,10 +429,10 @@ def normalize_segments(
                 "kuraimure",
             )
         ).strip()
-        
+
         if not speaker:
             speaker = "kuraimure"
-        
+
         cleaned_segments.append(
             {
                 "start": round(
