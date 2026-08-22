@@ -1,972 +1,1101 @@
-import json
-import sys
-from pathlib import Path
-
-
-TIMESTAMP_TOLERANCE = 0.05
-
-# ============================================================
-# CONFIGURACIÓN DE SUBTÍTULOS
-# ============================================================
-
-# Máximo de palabras que aparecerán simultáneamente.
-#
-# Gemini puede devolver una frase muy larga aunque los
-# segmentos originales de Whisper fueran más cortos.
-#
-# Por eso el límite se aplica DESPUÉS de procesar Gemini.
-MAX_WORDS_PER_SUBTITLE = 3
-
-
-# ============================================================
-# JSON
-# ============================================================
-
-def load_json(path: str) -> dict:
-
-    file_path = Path(path)
-
-    if not file_path.exists():
-        raise FileNotFoundError(
-            f"No existe el archivo: {file_path}"
-        )
-
-    with file_path.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        return json.load(file)
-
-
-# ============================================================
-# SEGMENTOS
-# ============================================================
-
-def get_segments(data: dict) -> list:
-
-    segments = data.get(
-        "segments",
-        [],
-    )
-
-    if not isinstance(
-        segments,
-        list,
-    ):
-        raise ValueError(
-            "El campo 'segments' "
-            "debe ser una lista."
-        )
-
-    return segments
-
-
-# ============================================================
-# TEXTO
-# ============================================================
-
-def normalize_text(text: str) -> str:
-
-    return " ".join(
-        text.strip().lower().split()
-    )
-
-
-# ============================================================
-# PUNTUACIÓN
-# ============================================================
-
-def punctuation_score(text: str) -> int:
-
-    score = 0
-
-    for char in text:
-
-        if char in "¡!¿?":
-            score += 1
-
-    return score
-
-
-# ============================================================
-# DETECTAR CAMBIOS EMOCIONALES
-# ============================================================
-
-def looks_like_emotional_change(
-    original: str,
-    corrected: str,
-) -> bool:
-
-    original_normalized = normalize_text(
-        original
-    )
-
-    corrected_normalized = normalize_text(
-        corrected
-    )
-
-    if (
-        not original_normalized
-        or not corrected_normalized
-    ):
-        return False
-
-    original_has_exclamation = (
-        "!" in original
-        or "¡" in original
-    )
-
-    corrected_has_exclamation = (
-        "!" in corrected
-        or "¡" in corrected
-    )
-
-    original_has_question = (
-        "?" in original
-        or "¿" in original
-    )
-
-    corrected_has_question = (
-        "?" in corrected
-        or "¿" in corrected
-    )
-
-    # Gemini ha cambiado una exclamación
-    # por una pregunta.
-    if (
-        original_has_exclamation
-        and corrected_has_question
-        and not corrected_has_exclamation
-    ):
-        return True
-
-    # Gemini ha eliminado una exclamación
-    # aunque el texto siga siendo prácticamente
-    # el mismo.
-    if (
-        original_has_exclamation
-        and not corrected_has_exclamation
-        and not corrected_has_question
-    ):
-
-        original_words = set(
-            original_normalized
-            .replace("¡", "")
-            .replace("!", "")
-            .split()
-        )
-
-        corrected_words = set(
-            corrected_normalized
-            .replace("¿", "")
-            .replace("?", "")
-            .split()
-        )
-
-        if (
-            original_words
-            and corrected_words
-        ):
-
-            common_words = (
-                original_words
-                .intersection(
-                    corrected_words
-                )
-            )
-
-            similarity = (
-                len(common_words)
-                / max(
-                    len(original_words),
-                    len(corrected_words),
-                )
-            )
-
-            if similarity >= 0.5:
-                return True
-
-    return False
-
-
-# ============================================================
-# RESTAURAR PUNTUACIÓN EMOCIONAL
-# ============================================================
-
-def restore_emotional_punctuation(
-    original: str,
-    corrected: str,
-) -> str:
-
-    if not original or not corrected:
-        return corrected
-
-    if not looks_like_emotional_change(
-        original,
-        corrected,
-    ):
-        return corrected
-
-    original_has_exclamation = (
-        "!" in original
-        or "¡" in original
-    )
-
-    corrected_has_question = (
-        "?" in corrected
-        or "¿" in corrected
-    )
-
-    # Exclamación convertida accidentalmente
-    # en pregunta.
-    if (
-        original_has_exclamation
-        and corrected_has_question
-    ):
-
-        cleaned = (
-            corrected
-            .replace("¿", "")
-            .replace("?", "")
-            .strip()
-        )
-
-        if cleaned:
-
-            return (
-                "¡"
-                + cleaned.rstrip("¡!")
-                + "!"
-            )
-
-    # Exclamación eliminada.
-    if (
-        original_has_exclamation
-        and "!" not in corrected
-        and "¡" not in corrected
-    ):
-
-        cleaned = corrected.strip()
-
-        if cleaned:
-
-            return (
-                "¡"
-                + cleaned.rstrip("¡!")
-                + "!"
-            )
-
-    return corrected
-
-
-# ============================================================
-# SPEAKER
-# ============================================================
-
-def get_speaker(
-    segment: dict,
-    fallback: str = "kuraimure",
-) -> str:
-
-    speaker = str(
-        segment.get(
-            "speaker",
-            fallback,
-        )
-    ).strip()
-
-    if not speaker:
-        return fallback
-
-    return speaker
-
-
-# ============================================================
-# BUSCAR SEGMENTO ORIGINAL
-# ============================================================
-
-def find_matching_original_segment(
-    ai_segment: dict,
-    original_segments: list,
-):
-
-    ai_start = float(
-        ai_segment["start"]
-    )
-
-    ai_end = float(
-        ai_segment["end"]
-    )
-
-    best_match = None
-    best_difference = None
-
-    for original in original_segments:
-
-        original_start = float(
-            original["start"]
-        )
-
-        original_end = float(
-            original["end"]
-        )
-
-        difference = (
-            abs(
-                ai_start
-                - original_start
-            )
-            +
-            abs(
-                ai_end
-                - original_end
-            )
-        )
-
-        if (
-            abs(
-                ai_start
-                - original_start
-            )
-            <= TIMESTAMP_TOLERANCE
-            and
-            abs(
-                ai_end
-                - original_end
-            )
-            <= TIMESTAMP_TOLERANCE
-        ):
-
-            if (
-                best_difference is None
-                or difference < best_difference
-            ):
-
-                best_match = original
-                best_difference = difference
-
-    return best_match
-
-
-# ============================================================
-# CONSTRUIR SEGMENTOS FINALES
-# ============================================================
-
-def build_final_segments(
-    ai_response: dict,
-    original_segments: list,
-) -> list:
-
-    ai_segments = get_segments(
-        ai_response
-    )
-
-    result = []
-
-    for ai_index, ai_segment in enumerate(
-        ai_segments,
-        start=1,
-    ):
-
-        if not isinstance(
-            ai_segment,
-            dict,
-        ):
-            raise ValueError(
-                f"Segmento de Gemini "
-                f"{ai_index} inválido."
-            )
-
-        if "start" not in ai_segment:
-
-            raise ValueError(
-                f"Gemini: falta start "
-                f"en segmento {ai_index}."
-            )
-
-        if "end" not in ai_segment:
-
-            raise ValueError(
-                f"Gemini: falta end "
-                f"en segmento {ai_index}."
-            )
-
-        if "text" not in ai_segment:
-
-            raise ValueError(
-                f"Gemini: falta text "
-                f"en segmento {ai_index}."
-            )
-
-        ai_start = float(
-            ai_segment["start"]
-        )
-
-        ai_end = float(
-            ai_segment["end"]
-        )
-
-        ai_text = str(
-            ai_segment["text"]
-        ).strip()
-
-        if ai_end <= ai_start:
-
-            raise ValueError(
-                f"Timestamp inválido "
-                f"en segmento {ai_index}."
-            )
-
-        if not ai_text:
-            continue
-
-        original = find_matching_original_segment(
-            ai_segment,
-            original_segments,
-        )
-
-        # ----------------------------------------------------
-        # SEGMENTO EXISTENTE EN WHISPER
-        # ----------------------------------------------------
-
-        if original is not None:
-
-            original_text = str(
-                original.get(
-                    "text",
-                    "",
-                )
-            ).strip()
-
-            final_text = (
-                restore_emotional_punctuation(
-                    original_text,
-                    ai_text,
-                )
-            )
-
-            # Mantenemos SIEMPRE los timestamps
-            # originales cuando existe coincidencia.
-            start = float(
-                original["start"]
-            )
-
-            end = float(
-                original["end"]
-            )
-
-            # Gemini tiene prioridad para determinar
-            # el speaker.
-            speaker = get_speaker(
-                ai_segment,
-                get_speaker(
-                    original,
-                    "kuraimure",
-                ),
-            )
-
-        # ----------------------------------------------------
-        # SEGMENTO NUEVO RECUPERADO POR GEMINI
-        # ----------------------------------------------------
-
-        else:
-
-            start = ai_start
-            end = ai_end
-            final_text = ai_text
-
-            speaker = get_speaker(
-                ai_segment,
-                "kuraimure",
-            )
-
-            print(
-                "Nuevo segmento recuperado "
-                "por Gemini: "
-                f"{start:.3f}s - "
-                f"{end:.3f}s | "
-                f"[{speaker}] | "
-                f"{final_text}"
-            )
-
-        result.append(
-            {
-                "start": start,
-                "end": end,
-                "text": final_text,
-                "speaker": speaker,
-            }
-        )
-
-    result.sort(
-        key=lambda segment: (
-            segment["start"],
-            segment["end"],
-        )
-    )
-
-    return result
-
-
-# ============================================================
-# DIVIDIR SUBTÍTULOS LARGOS
-# ============================================================
-
-def split_long_subtitles(
-    segments: list,
-    max_words: int = MAX_WORDS_PER_SUBTITLE,
-) -> list:
-
-    """
-    Divide cualquier segmento que tenga más palabras
-    de las permitidas.
-
-    Ejemplo:
-
-        "Sí, apunta para la izquierda y mantén la visión
-         nocturna. Actívala."
-
-    con max_words = 3:
-
-        "Sí, apunta"
-        "para la"
-        "izquierda y"
-        "mantén la"
-        "visión nocturna."
-        "Actívala."
-
-    Los timestamps del segmento original se reparten
-    proporcionalmente según el número de palabras.
-
-    El speaker se conserva en todos los nuevos segmentos.
-    """
-
-    if max_words < 1:
-
-        raise ValueError(
-            "max_words debe ser mayor que 0."
-        )
-
-    result = []
-
-    for segment in segments:
-
-        text = str(
-            segment.get(
-                "text",
-                "",
-            )
-        ).strip()
-
-        if not text:
-            continue
-
-        words = text.split()
-
-        # ----------------------------------------------------
-        # SEGMENTO QUE YA CUMPLE EL LÍMITE
-        # ----------------------------------------------------
-
-        if len(words) <= max_words:
-
-            result.append(
-                segment
-            )
-
-            continue
-
-        # ----------------------------------------------------
-        # TIMESTAMPS
-        # ----------------------------------------------------
-
-        start = float(
-            segment["start"]
-        )
-
-        end = float(
-            segment["end"]
-        )
-
-        duration = end - start
-
-        if duration <= 0:
-
-            raise ValueError(
-                "Segmento con duración inválida "
-                "al dividir subtítulos: "
-                f"{start} - {end}"
-            )
-
-        # ----------------------------------------------------
-        # CREAR BLOQUES
-        # ----------------------------------------------------
-
-        chunks = []
-
-        for index in range(
-            0,
-            len(words),
-            max_words,
-        ):
-
-            chunks.append(
-                words[
-                    index:index + max_words
-                ]
-            )
-
-        total_words = len(words)
-
-        elapsed_words = 0
-
-        speaker = get_speaker(
-            segment,
-            "kuraimure",
-        )
-
-        print(
-            "Dividiendo segmento: "
-            f"{len(words)} palabras -> "
-            f"{len(chunks)} subtítulos | "
-            f"[{speaker}] | "
-            f"{text}"
-        )
-
-        # ----------------------------------------------------
-        # REPARTIR TIEMPO
-        # ----------------------------------------------------
-
-        for chunk_index, chunk in enumerate(
-            chunks
-        ):
-
-            chunk_start = (
-                start
-                + duration
-                * (
-                    elapsed_words
-                    / total_words
-                )
-            )
-
-            elapsed_words += len(chunk)
-
-            if (
-                chunk_index
-                == len(chunks) - 1
-            ):
-
-                chunk_end = end
-
-            else:
-
-                chunk_end = (
-                    start
-                    + duration
-                    * (
-                        elapsed_words
-                        / total_words
-                    )
-                )
-
-            result.append(
-                {
-                    "start": round(
-                        chunk_start,
-                        3,
-                    ),
-                    "end": round(
-                        chunk_end,
-                        3,
-                    ),
-                    "text": " ".join(
-                        chunk
-                    ),
-                    "speaker": speaker,
-                }
-            )
-
-    return result
-
-
-# ============================================================
-# ELIMINAR DUPLICADOS
-# ============================================================
-
-def remove_duplicate_segments(
-    segments: list,
-) -> list:
-
-    result = []
-
-    seen = set()
-
-    for segment in segments:
-
-        key = (
-            round(
-                float(
-                    segment["start"]
-                ),
-                3,
-            ),
-            round(
-                float(
-                    segment["end"]
-                ),
-                3,
-            ),
-            normalize_text(
-                segment["text"]
-            ),
-            segment.get(
-                "speaker",
-                "kuraimure",
-            ),
-        )
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-
-        result.append(
-            segment
-        )
-
-    return result
-
-
-# ============================================================
-# ESCRIBIR SUBTÍTULOS
-# ============================================================
-
-def write_final_subtitles(
-    segments: list,
-    output_path: str,
-) -> None:
-
-    output_file = Path(
-        output_path
-    )
-
-    with output_file.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        for segment in segments:
-
-            start = float(
-                segment["start"]
-            )
-
-            end = float(
-                segment["end"]
-            )
-
-            text = str(
-                segment["text"]
-            ).strip()
-
-            speaker = get_speaker(
-                segment,
-                "kuraimure",
-            )
-
-            file.write(
-                f"{start:.3f}|"
-                f"{end:.3f}|"
-                f"{speaker}|"
-                f"{text}\n"
-            )
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main() -> None:
-
-    if len(sys.argv) != 4:
-
-        print(
-            "Uso: python "
-            "src/ai_response_handler.py "
-            "<ai_response.json> "
-            "<corrected_subtitles.json> "
-            "<final_subtitles.txt>"
-        )
-
-        sys.exit(1)
-
-    ai_response_path = sys.argv[1]
-
-    original_path = sys.argv[2]
-
-    output_path = sys.argv[3]
-
-    try:
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "PROCESANDO RESPUESTA DE GEMINI"
-        )
-
-        print(
-            "========================================"
-        )
-
-        # ----------------------------------------------------
-        # CARGAR GEMINI
-        # ----------------------------------------------------
-
-        ai_response = load_json(
-            ai_response_path
-        )
-
-        # ----------------------------------------------------
-        # CARGAR WHISPER/CORRECCIÓN
-        # ----------------------------------------------------
-
-        original_data = load_json(
-            original_path
-        )
-
-        original_segments = get_segments(
-            original_data
-        )
-
-        print(
-            f"Segmentos originales: "
-            f"{len(original_segments)}"
-        )
-
-        ai_segments = get_segments(
-            ai_response
-        )
-
-        print(
-            f"Segmentos recibidos de Gemini: "
-            f"{len(ai_segments)}"
-        )
-
-        # ----------------------------------------------------
-        # 1. CONSTRUIR SEGMENTOS
-        # ----------------------------------------------------
-
-        final_segments = build_final_segments(
-            ai_response,
-            original_segments,
-        )
-
-        print(
-            f"Segmentos después de Gemini: "
-            f"{len(final_segments)}"
-        )
-
-        # ----------------------------------------------------
-        # 2. DIVIDIR SEGMENTOS LARGOS
-        #
-        # IMPORTANTE:
-        # Se hace DESPUÉS de Gemini.
-        #
-        # Así Gemini puede juntar frases o corregir
-        # transcripciones y nosotros posteriormente
-        # controlamos cuánto texto aparece en pantalla.
-        # ----------------------------------------------------
-
-        final_segments = split_long_subtitles(
-            final_segments,
-            MAX_WORDS_PER_SUBTITLE,
-        )
-
-        print(
-            f"Segmentos después de dividir: "
-            f"{len(final_segments)}"
-        )
-
-        # ----------------------------------------------------
-        # 3. ELIMINAR DUPLICADOS
-        # ----------------------------------------------------
-
-        final_segments = (
-            remove_duplicate_segments(
-                final_segments
-            )
-        )
-
-        print(
-            f"Segmentos después de eliminar "
-            f"duplicados: "
-            f"{len(final_segments)}"
-        )
-
-        # ----------------------------------------------------
-        # 4. GUARDAR
-        # ----------------------------------------------------
-
-        write_final_subtitles(
-            final_segments,
-            output_path,
-        )
-
-        print("")
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "SUBTÍTULOS FINALES CREADOS"
-        )
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "Los timestamps existentes "
-            "se mantienen."
-        )
-
-        print(
-            "Los segmentos que Whisper "
-            "omitió pueden ser añadidos "
-            "por Gemini."
-        )
-
-        print(
-            "La información del hablante "
-            "se conserva."
-        )
-
-        print(
-            f"Máximo de palabras simultáneas: "
-            f"{MAX_WORDS_PER_SUBTITLE}"
-        )
-
-        print(
-            f"Segmentos finales: "
-            f"{len(final_segments)}"
-        )
-
-        print(
-            f"Archivo: "
-            f"{output_path}"
-        )
-
-    except Exception as error:
-
-        print(
-            f"ERROR: {error}"
-        )
-
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+name: Whisper Test
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: twitch-tiktok-telegram-review
+  cancel-in-progress: false
+
+jobs:
+  whisper-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # FFMPEG
+      # ============================================================
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+          echo "FFmpeg instalado:"
+          ffmpeg -version | head -n 1
+
+      # ============================================================
+      # PYTHON
+      # ============================================================
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install requests
+          pip install yt-dlp
+
+      # ============================================================
+      # TWITCH TOKEN
+      # ============================================================
+
+      - name: Obtain Twitch App Access Token
+        id: twitch-token
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import requests
+
+          client_id = os.environ.get("TWITCH_CLIENT_ID")
+          client_secret = os.environ.get("TWITCH_CLIENT_SECRET")
+
+          if not client_id:
+              print("ERROR: Falta TWITCH_CLIENT_ID.")
+              sys.exit(1)
+
+          if not client_secret:
+              print("ERROR: Falta TWITCH_CLIENT_SECRET.")
+              sys.exit(1)
+
+          response = requests.post(
+              "https://id.twitch.tv/oauth2/token",
+              headers={
+                  "Content-Type":
+                  "application/x-www-form-urlencoded"
+              },
+              data={
+                  "client_id": client_id,
+                  "client_secret": client_secret,
+                  "grant_type": "client_credentials",
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch token HTTP: "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          access_token = data.get("access_token")
+
+          if not access_token:
+              print(
+                  "ERROR: Twitch no devolvió "
+                  "access_token."
+              )
+              sys.exit(1)
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+          ) as output:
+              output.write(
+                  f"access_token={access_token}\n"
+              )
+
+          print(
+              "Twitch App Access Token "
+              "obtenido correctamente."
+          )
+
+          print(
+              f"Duración: "
+              f"{data.get('expires_in')} segundos."
+          )
+          PY
+
+      # ============================================================
+      # VALIDAR TOKEN
+      # ============================================================
+
+      - name: Validate Twitch App Access Token
+        env:
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import requests
+
+          token = os.environ.get("TWITCH_ACCESS_TOKEN")
+
+          response = requests.get(
+              "https://id.twitch.tv/oauth2/validate",
+              headers={
+                  "Authorization":
+                  f"OAuth {token}"
+              },
+              timeout=30,
+          )
+
+          print(
+              "Twitch /oauth2/validate: "
+              f"HTTP {response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          print(
+              "Twitch App Access Token válido."
+          )
+
+          print(
+              f"Client ID: "
+              f"{data.get('client_id')}"
+          )
+
+          print(
+              f"Expira en: "
+              f"{data.get('expires_in')} segundos."
+          )
+          PY
+
+      # ============================================================
+      # TWITCH USER
+      # ============================================================
+
+      - name: Get Twitch broadcaster ID
+        id: twitch-user
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import requests
+
+          response = requests.get(
+              "https://api.twitch.tv/helix/users",
+              params={
+                  "login": "kuraimure57"
+              },
+              headers={
+                  "Authorization":
+                  f"Bearer "
+                  f"{os.environ['TWITCH_ACCESS_TOKEN']}",
+                  "Client-Id":
+                  os.environ["TWITCH_CLIENT_ID"],
+              },
+              timeout=30,
+          )
+
+          print(
+              f"Twitch /helix/users: "
+              f"HTTP {response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          users = data.get("data", [])
+
+          if not users:
+              print(
+                  "ERROR: No se encontró "
+                  "@kuraimure57."
+              )
+              sys.exit(1)
+
+          user = users[0]
+          user_id = user.get("id")
+
+          if not user_id:
+              print(
+                  "ERROR: Twitch no devolvió "
+                  "el ID."
+              )
+              sys.exit(1)
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+          ) as output:
+              output.write(
+                  f"user_id={user_id}\n"
+              )
+
+          print("Cuenta Twitch encontrada.")
+
+          print(
+              f"Usuario: "
+              f"@{user.get('login')}"
+          )
+
+          print(
+              f"Nombre mostrado: "
+              f"{user.get('display_name')}"
+          )
+
+          print(
+              f"Broadcaster ID: "
+              f"{user_id}"
+          )
+          PY
+
+      # ============================================================
+      # CLIPS TWITCH
+      # ============================================================
+
+      - name: Get latest Twitch clips
+        id: twitch-clips
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_ACCESS_TOKEN: ${{ steps.twitch-token.outputs.access_token }}
+          TWITCH_BROADCASTER_ID: ${{ steps.twitch-user.outputs.user_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from datetime import datetime, timedelta, timezone
+
+          import requests
+
+          now = datetime.now(timezone.utc)
+          seven_days_ago = now - timedelta(days=7)
+
+          started_at = seven_days_ago.strftime(
+              "%Y-%m-%dT%H:%M:%SZ"
+          )
+
+          ended_at = now.strftime(
+              "%Y-%m-%dT%H:%M:%SZ"
+          )
+
+          print("")
+          print("========================================")
+          print("BUSCANDO CLIPS DE LOS ÚLTIMOS 7 DÍAS")
+          print("========================================")
+          print(f"Desde: {started_at}")
+          print(f"Hasta: {ended_at}")
+
+          response = requests.get(
+              "https://api.twitch.tv/helix/clips",
+              params={
+                  "broadcaster_id":
+                  os.environ["TWITCH_BROADCASTER_ID"],
+                  "started_at": started_at,
+                  "ended_at": ended_at,
+                  "first": 100,
+              },
+              headers={
+                  "Authorization":
+                  "Bearer "
+                  + os.environ["TWITCH_ACCESS_TOKEN"],
+                  "Client-Id":
+                  os.environ["TWITCH_CLIENT_ID"],
+              },
+              timeout=30,
+          )
+
+          print(
+              "Twitch /helix/clips: "
+              f"HTTP {response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200:
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          clips = data.get("data", [])
+
+          if not clips:
+              print("")
+              print(
+                  "NO HAY CLIPS EN LOS "
+                  "ÚLTIMOS 7 DÍAS"
+              )
+              print("")
+              sys.exit(1)
+
+          clips.sort(
+              key=lambda clip:
+              clip.get("created_at", ""),
+              reverse=True,
+          )
+
+          print("")
+          print("==============================")
+          print(
+              f"CLIPS ENCONTRADOS: "
+              f"{len(clips)}"
+          )
+          print("==============================")
+
+          for index, clip in enumerate(
+              clips,
+              start=1,
+          ):
+              print(
+                  f"\n--- Clip {index} ---"
+              )
+
+              print(
+                  f"ID: "
+                  f"{clip.get('id')}"
+              )
+
+              print(
+                  f"Título: "
+                  f"{clip.get('title')}"
+              )
+
+              print(
+                  f"Fecha: "
+                  f"{clip.get('created_at')}"
+              )
+
+              print(
+                  f"Duración API: "
+                  f"{clip.get('duration')} s"
+              )
+
+              print(
+                  f"Vistas: "
+                  f"{clip.get('view_count')}"
+              )
+
+              print(
+                  f"URL: "
+                  f"{clip.get('url')}"
+              )
+
+          clip = clips[0]
+
+          with open(
+              "selected_twitch_clip.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(
+                  clip,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+          print("")
+          print(
+              "CLIP MÁS RECIENTE SELECCIONADO"
+          )
+
+          print(
+              f"ID: {clip.get('id')}"
+          )
+
+          print(
+              f"Título: {clip.get('title')}"
+          )
+
+          print(
+              f"Duración API: "
+              f"{clip.get('duration')} s"
+          )
+
+          print(
+              f"URL: {clip.get('url')}"
+          )
+          PY
+
+      - name: Upload Twitch clips information
+        uses: actions/upload-artifact@v4
+        with:
+          name: twitch-clips-information
+          path: selected_twitch_clip.json
+          if-no-files-found: error
+
+      # ============================================================
+      # DESCARGAR CLIP
+      # ============================================================
+
+      - name: Download selected Twitch clip
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          with open(
+              "selected_twitch_clip.json",
+              "r",
+              encoding="utf-8",
+          ) as file:
+              clip = json.load(file)
+
+          clip_url = clip.get("url")
+
+          if not clip_url:
+              print(
+                  "ERROR: Twitch no devolvió "
+                  "la URL del clip."
+              )
+              sys.exit(1)
+
+          print("")
+          print("==============================")
+          print("DESCARGANDO CLIP DE TWITCH")
+          print("==============================")
+
+          print(
+              f"ID: {clip.get('id')}"
+          )
+
+          print(
+              f"Título: {clip.get('title')}"
+          )
+
+          print(
+              f"Duración API: "
+              f"{clip.get('duration')} s"
+          )
+
+          print(
+              f"URL: {clip_url}"
+          )
+
+          subprocess.run(
+              [
+                  "yt-dlp",
+                  "--no-playlist",
+                  "--no-warnings",
+                  "--remux-video",
+                  "mp4",
+                  "-o",
+                  "twitch_clip.%(ext)s",
+                  clip_url,
+              ],
+              check=True,
+          )
+          PY
+
+          if [ ! -f twitch_clip.mp4 ]; then
+            echo "ERROR: No se ha creado twitch_clip.mp4"
+            ls -lah
+            exit 1
+          fi
+
+          echo ""
+          echo "CLIP DESCARGADO:"
+          ls -lh twitch_clip.mp4
+
+          echo ""
+          echo "DURACIÓN REAL:"
+          ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            twitch_clip.mp4
+
+      - name: Upload downloaded Twitch clip
+        uses: actions/upload-artifact@v4
+        with:
+          name: twitch-clip-source
+          path: twitch_clip.mp4
+          if-no-files-found: error
+
+      # ============================================================
+      # WHISPER
+      # ============================================================
+
+      - name: Run Whisper
+        run: |
+          python src/transcribe.py \
+            twitch_clip.mp4 \
+            output.txt
+
+      - name: Show Whisper output
+        run: |
+          echo "=============================="
+          echo "WHISPER OUTPUT"
+          echo "=============================="
+          cat output.txt
+
+      - name: Show Whisper JSON
+        run: |
+          echo "=============================="
+          echo "WHISPER JSON"
+          echo "=============================="
+          cat output.json
+
+      # ============================================================
+      # FORMATEAR SUBTÍTULOS
+      # ============================================================
+
+      - name: Format subtitles
+        run: |
+          python src/subtitle_formatter.py \
+            output.json \
+            formatted_subtitles.json
+
+      - name: Show formatted subtitles
+        run: |
+          cat formatted_subtitles.json
+
+      # ============================================================
+      # CORREGIR FORMATO
+      # ============================================================
+
+      - name: Correct subtitles
+        run: |
+          python src/subtitle_corrector.py \
+            formatted_subtitles.json \
+            corrected_subtitles.json
+
+      - name: Show corrected subtitles
+        run: |
+          cat corrected_subtitles.json
+
+      # ============================================================
+      # CREAR INPUT PARA GEMINI
+      # ============================================================
+
+      - name: Build AI input
+        run: |
+          python - <<'PY'
+          import json
+
+          with open(
+              "corrected_subtitles.json",
+              "r",
+              encoding="utf-8",
+          ) as file:
+              subtitles = json.load(file)
+
+          if not isinstance(subtitles, dict):
+              raise ValueError(
+                  "corrected_subtitles.json "
+                  "debe ser un objeto JSON."
+              )
+
+          segments = subtitles.get("segments", [])
+
+          if not isinstance(segments, list):
+              raise ValueError(
+                  "'segments' debe ser una lista."
+              )
+
+          ai_input = {
+              "language":
+                  subtitles.get(
+                      "language",
+                      "es",
+                  ),
+              "segments": segments,
+              "instructions": {
+                  "review_full_audio": True,
+                  "correct_transcription": True,
+                  "detect_missing_segments": True,
+                  "preserve_timestamps": True,
+                  "never_shift_existing_timestamps": True,
+                  "return_only_valid_json": True,
+              },
+          }
+
+          with open(
+              "ai_input.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(
+                  ai_input,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+          print("ai_input.json creado.")
+
+          print(
+              f"Segmentos enviados a Gemini: "
+              f"{len(segments)}"
+          )
+          PY
+
+      - name: Show AI input
+        run: |
+          cat ai_input.json
+
+      # ============================================================
+      # GEMINI
+      # ============================================================
+
+      - name: Analyze video with Gemini
+        run: |
+          python src/gemini_analyzer.py \
+            twitch_clip.mp4 \
+            ai_input.json \
+            ai_response.json
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Show AI response
+        run: |
+          cat ai_response.json
+
+      # ============================================================
+      # VALIDAR GEMINI
+      # ============================================================
+
+      - name: Validate AI response
+        run: |
+          python src/ai_response_validator.py \
+            ai_response.json
+
+      # ============================================================
+      # SCORING
+      # ============================================================
+
+      - name: Calculate score
+        run: |
+          python src/scoring.py \
+            ai_response.json \
+            scored_response.json
+
+      - name: Show scored response
+        run: |
+          cat scored_response.json
+
+      # ============================================================
+      # METADATA
+      # ============================================================
+
+      - name: Generate clip metadata
+        run: |
+          python src/metadata_generator.py \
+            scored_response.json \
+            metadata.json
+
+      - name: Show clip metadata
+        run: |
+          cat metadata.json
+
+      # ============================================================
+      # SUBTÍTULOS FINALES
+      # ============================================================
+
+      - name: Build final subtitles
+        run: |
+          python src/ai_response_handler.py \
+            ai_response.json \
+            corrected_subtitles.json \
+            final_subtitles.txt
+
+      - name: Show final subtitles
+        run: |
+          echo "=============================="
+          echo "SUBTÍTULOS FINALES"
+          echo "=============================="
+          cat final_subtitles.txt
+
+      # ============================================================
+      # CLIP ORIGINAL
+      # ============================================================
+
+      - name: Verify original Twitch clip duration
+        run: |
+          echo "=============================="
+          echo "DURACIÓN DEL CLIP ORIGINAL"
+          echo "=============================="
+
+          duration=$(ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            twitch_clip.mp4)
+
+          echo "Duración original: ${duration}s"
+
+      # ============================================================
+      # VÍDEO VERTICAL
+      # ============================================================
+
+      - name: Create vertical TikTok video
+        run: |
+          python src/video_editor.py \
+            twitch_clip.mp4 \
+            tiktok_clip.mp4
+
+      - name: Verify vertical TikTok video
+        run: |
+          echo "=============================="
+          echo "VÍDEO VERTICAL"
+          echo "=============================="
+
+          ls -lh tiktok_clip.mp4
+
+          echo ""
+          echo "Duración:"
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            tiktok_clip.mp4
+
+          echo ""
+          echo "Resolución:"
+
+          ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=width,height \
+            -of default=noprint_wrappers=1:nokey=1 \
+            tiktok_clip.mp4
+
+      # ============================================================
+      # SUBTÍTULOS QUEMADOS
+      # ============================================================
+
+      - name: Burn subtitles into TikTok video
+        run: |
+          python src/subtitle_burner.py \
+            tiktok_clip.mp4 \
+            final_subtitles.txt \
+            final_tiktok.mp4
+
+      - name: Verify final TikTok video
+        run: |
+          echo "=============================="
+          echo "VÍDEO FINAL"
+          echo "=============================="
+
+          ls -lh final_tiktok.mp4
+
+          echo ""
+          echo "Duración final:"
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            final_tiktok.mp4
+
+      # ============================================================
+      # TELEGRAM
+      # ============================================================
+
+      - name: Create review state
+        run: |
+          python src/review_manager.py \
+            create \
+            metadata.json \
+            review_state.json
+
+      - name: Send clip to Telegram for review
+        id: telegram_review
+        timeout-minutes: 125
+        run: |
+          python src/telegram_review.py \
+            final_tiktok.mp4 \
+            metadata.json \
+            review_state.json \
+            final_subtitles.txt \
+            tiktok_clip.mp4 \
+            7200
+
+          echo "status=$(cat review_result.txt)" \
+            >> "$GITHUB_OUTPUT"
+
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Show review state
+        run: |
+          cat review_state.json
+
+      # ============================================================
+      # PUBLICACIÓN MANUAL
+      # ============================================================
+
+      - name: Send TikTok publication information
+        if: steps.telegram_review.outputs.status == 'approved'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import requests
+
+          metadata_file = "metadata.json"
+
+          try:
+              with open(
+                  metadata_file,
+                  "r",
+                  encoding="utf-8",
+              ) as file:
+                  metadata = json.load(file)
+          except Exception as exc:
+              print(
+                  f"ERROR leyendo {metadata_file}: "
+                  f"{exc}"
+              )
+              sys.exit(1)
+
+          def find_value(data, keys):
+              if isinstance(data, dict):
+                  for key in keys:
+                      if key in data and data[key] not in (
+                          None,
+                          "",
+                          [],
+                      ):
+                          return data[key]
+
+                  for value in data.values():
+                      result = find_value(value, keys)
+
+                      if result not in (
+                          None,
+                          "",
+                          [],
+                      ):
+                          return result
+
+              elif isinstance(data, list):
+                  for item in data:
+                      result = find_value(item, keys)
+
+                      if result not in (
+                          None,
+                          "",
+                          [],
+                      ):
+                          return result
+
+              return None
+
+          title = find_value(
+              metadata,
+              [
+                  "title",
+                  "tiktok_title",
+                  "caption_title",
+              ],
+          )
+
+          description = find_value(
+              metadata,
+              [
+                  "description",
+                  "caption",
+                  "tiktok_description",
+                  "text",
+              ],
+          )
+
+          hashtags = find_value(
+              metadata,
+              [
+                  "hashtags",
+                  "hash_tags",
+                  "tiktok_hashtags",
+              ],
+          )
+
+          if title is None:
+              title = "Clip de Twitch"
+
+          if description is None:
+              description = ""
+
+          if isinstance(hashtags, list):
+              hashtags = " ".join(
+                  str(tag)
+                  if str(tag).startswith("#")
+                  else f"#{str(tag)}"
+                  for tag in hashtags
+              )
+
+          elif hashtags is None:
+              hashtags = ""
+
+          else:
+              hashtags = str(hashtags)
+
+          title = str(title).strip()
+          description = str(description).strip()
+          hashtags = str(hashtags).strip()
+
+          message_parts = [
+              "✅ <b>CLIP APROBADO — DATOS PARA TIKTOK</b>",
+              "",
+              "📥 <b>Vídeo:</b>",
+              "El vídeo aprobado está justo en el mensaje anterior. Descárgalo desde Telegram.",
+              "",
+              "📝 <b>Título:</b>",
+              title,
+          ]
+
+          if description:
+              message_parts.extend([
+                  "",
+                  "💬 <b>Descripción:</b>",
+                  description,
+              ])
+
+          if hashtags:
+              message_parts.extend([
+                  "",
+                  "🏷️ <b>Hashtags:</b>",
+                  hashtags,
+              ])
+
+          message_parts.extend([
+              "",
+              "📋 <b>Publicación:</b>",
+              "1. Descarga el vídeo del mensaje anterior.",
+              "2. Súbelo manualmente a TikTok.",
+              "3. Copia la información de este mensaje.",
+          ])
+
+          message = "\n".join(message_parts)
+
+          token = os.environ.get(
+              "TELEGRAM_BOT_TOKEN"
+          )
+
+          chat_id = os.environ.get(
+              "TELEGRAM_CHAT_ID"
+          )
+
+          if not token:
+              print(
+                  "ERROR: Falta "
+                  "TELEGRAM_BOT_TOKEN."
+              )
+              sys.exit(1)
+
+          if not chat_id:
+              print(
+                  "ERROR: Falta "
+                  "TELEGRAM_CHAT_ID."
+              )
+              sys.exit(1)
+
+          response = requests.post(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data={
+                  "chat_id": chat_id,
+                  "text": message,
+                  "parse_mode": "HTML",
+                  "disable_web_page_preview": True,
+              },
+              timeout=30,
+          )
+
+          print(
+              "Telegram publication message HTTP: "
+              f"{response.status_code}"
+          )
+
+          try:
+              data = response.json()
+          except ValueError:
+              print(response.text)
+              sys.exit(1)
+
+          if response.status_code != 200 or not data.get("ok"):
+              print(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      indent=2,
+                  )
+              )
+              sys.exit(1)
+
+          print(
+              "Información de publicación "
+              "enviada correctamente a Telegram."
+          )
+          PY
+
+      # ============================================================
+      # RECHAZADO
+      # ============================================================
+
+      - name: Report rejected clip
+        if: steps.telegram_review.outputs.status == 'rejected'
+        run: |
+          echo "El clip ha sido descartado desde Telegram."
