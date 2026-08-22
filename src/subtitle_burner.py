@@ -3,10 +3,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from speaker_styles import (
+    DEFAULT_SPEAKER,
+    get_speaker_style,
+)
 
-# ============================================================
-# PALABRAS QUE SE CENSURAN EN LOS SUBTÍTULOS
-# ============================================================
 
 PROFANITY_WORDS = {
     "puta",
@@ -39,12 +40,6 @@ PROFANITY_WORDS = {
 
 
 def censor_profanity(text: str) -> str:
-    """
-    Sustituye las palabras consideradas palabrotas por ***.
-
-    Se respetan las palabras completas para evitar modificar
-    palabras normales que simplemente contengan esas letras.
-    """
 
     if not text:
         return text
@@ -52,6 +47,7 @@ def censor_profanity(text: str) -> str:
     censored_text = text
 
     for word in PROFANITY_WORDS:
+
         pattern = re.compile(
             rf"(?<!\w){re.escape(word)}(?!\w)",
             re.IGNORECASE,
@@ -65,43 +61,92 @@ def censor_profanity(text: str) -> str:
     return censored_text
 
 
-def format_timestamp(seconds: float) -> str:
-    milliseconds = int(round(seconds * 1000))
+def format_ass_timestamp(
+    seconds: float,
+) -> str:
 
-    hours = milliseconds // 3_600_000
-    milliseconds %= 3_600_000
+    total_centiseconds = int(
+        round(seconds * 100)
+    )
 
-    minutes = milliseconds // 60_000
-    milliseconds %= 60_000
+    hours = (
+        total_centiseconds
+        // 360000
+    )
 
-    seconds_value = milliseconds // 1_000
-    milliseconds %= 1_000
+    total_centiseconds %= 360000
+
+    minutes = (
+        total_centiseconds
+        // 6000
+    )
+
+    total_centiseconds %= 6000
+
+    seconds_value = (
+        total_centiseconds
+        // 100
+    )
+
+    centiseconds = (
+        total_centiseconds
+        % 100
+    )
 
     return (
-        f"{hours:02d}:"
+        f"{hours}:"
         f"{minutes:02d}:"
-        f"{seconds_value:02d},"
-        f"{milliseconds:03d}"
+        f"{seconds_value:02d}."
+        f"{centiseconds:02d}"
     )
 
 
-def create_srt(
+def ass_color(rgb) -> str:
+
+    red, green, blue = rgb
+
+    return (
+        f"&H00"
+        f"{blue:02X}"
+        f"{green:02X}"
+        f"{red:02X}"
+    )
+
+
+def safe_style_name(
+    speaker: str,
+) -> str:
+
+    name = re.sub(
+        r"[^a-zA-Z0-9_]",
+        "_",
+        speaker,
+    )
+
+    if not name:
+        return DEFAULT_SPEAKER
+
+    return name
+
+
+def create_ass(
     subtitles_path: str,
     output_path: str,
     clip_start: float = 0.0,
 ) -> None:
 
-    subtitles_file = Path(subtitles_path)
-    output_file = Path(output_path)
+    subtitles_file = Path(
+        subtitles_path
+    )
+
+    output_file = Path(
+        output_path
+    )
 
     if not subtitles_file.exists():
         raise FileNotFoundError(
-            f"No existe el archivo: {subtitles_file}"
-        )
-
-    if clip_start < 0:
-        raise ValueError(
-            "clip_start no puede ser negativo."
+            f"No existe el archivo: "
+            f"{subtitles_file}"
         )
 
     entries = []
@@ -112,36 +157,88 @@ def create_srt(
     ) as file:
 
         for line in file:
+
             line = line.strip()
 
             if not line:
                 continue
 
-            parts = line.split("|", 2)
+            parts = line.split(
+                "|",
+                3,
+            )
 
-            if len(parts) != 3:
-                raise ValueError(
-                    "Formato de subtítulo inválido: "
-                    f"{line}"
+            # -----------------------------------------------
+            # FORMATO ANTIGUO
+            # -----------------------------------------------
+            #
+            # start|end|text
+            #
+            # -----------------------------------------------
+
+            if len(parts) == 3:
+
+                original_start = float(
+                    parts[0]
                 )
 
-            original_start = float(parts[0])
-            original_end = float(parts[1])
-            text = parts[2].strip()
+                original_end = float(
+                    parts[1]
+                )
 
-            # Convertimos los timestamps del vídeo original
-            # a timestamps relativos al clip.
-            start = original_start - clip_start
-            end = original_end - clip_start
+                speaker = DEFAULT_SPEAKER
 
-            # Ignorar subtítulos completamente anteriores
-            # al comienzo del clip.
+                text = parts[2].strip()
+
+            # -----------------------------------------------
+            # FORMATO NUEVO
+            # -----------------------------------------------
+            #
+            # start|end|speaker|text
+            #
+            # -----------------------------------------------
+
+            elif len(parts) == 4:
+
+                original_start = float(
+                    parts[0]
+                )
+
+                original_end = float(
+                    parts[1]
+                )
+
+                speaker = parts[2].strip()
+
+                if not speaker:
+                    speaker = DEFAULT_SPEAKER
+
+                text = parts[3].strip()
+
+            else:
+
+                raise ValueError(
+                    "Formato de subtítulo "
+                    f"inválido: {line}"
+                )
+
+            start = (
+                original_start
+                - clip_start
+            )
+
+            end = (
+                original_end
+                - clip_start
+            )
+
             if end <= 0:
                 continue
 
-            # Si un subtítulo comienza antes del clip,
-            # hacemos que empiece exactamente en 0.
-            start = max(0.0, start)
+            start = max(
+                0.0,
+                start,
+            )
 
             if end <= start:
                 continue
@@ -149,44 +246,155 @@ def create_srt(
             if not text:
                 continue
 
-            # Censurar palabrotas únicamente en el texto.
-            # Los timestamps no se modifican.
-            censored_text = censor_profanity(text)
+            censored_text = (
+                censor_profanity(text)
+            )
 
             entries.append(
                 (
                     start,
                     end,
+                    speaker,
                     censored_text,
                 )
             )
+
+    # -------------------------------------------------------
+    # CREAR ASS
+    # -------------------------------------------------------
 
     with output_file.open(
         "w",
         encoding="utf-8",
     ) as file:
 
-        for index, (
+        file.write(
+            "[Script Info]\n"
+        )
+
+        file.write(
+            "ScriptType: v4.00+\n"
+        )
+
+        file.write(
+            "PlayResX: 1080\n"
+        )
+
+        file.write(
+            "PlayResY: 1920\n"
+        )
+
+        file.write(
+            "ScaledBorderAndShadow: yes\n"
+        )
+
+        file.write("\n")
+
+        file.write(
+            "[V4+ Styles]\n"
+        )
+
+        file.write(
+            "Format: "
+            "Name,Fontname,Fontsize,"
+            "PrimaryColour,SecondaryColour,"
+            "OutlineColour,BackColour,"
+            "Bold,Italic,Underline,StrikeOut,"
+            "ScaleX,ScaleY,Spacing,Angle,"
+            "BorderStyle,Outline,Shadow,"
+            "Alignment,MarginL,MarginR,MarginV,"
+            "Encoding\n"
+        )
+
+        speakers = set(
+            entry[2]
+            for entry in entries
+        )
+
+        style_names = {}
+
+        for speaker in speakers:
+
+            style_name = safe_style_name(
+                speaker
+            )
+
+            style_names[
+                speaker
+            ] = style_name
+
+            style = get_speaker_style(
+                speaker
+            )
+
+            outline = ass_color(
+                style["outline"]
+            )
+
+            file.write(
+                f"Style: {style_name},"
+                f"Arial,"
+                f"18,"
+                f"&H00FFFFFF,"
+                f"&H00FFFFFF,"
+                f"{outline},"
+                f"&H00000000,"
+                f"1,0,0,0,"
+                f"100,100,0,0,"
+                f"1,3,0,"
+                f"2,40,40,60,"
+                f"1\n"
+            )
+
+        file.write("\n")
+
+        file.write(
+            "[Events]\n"
+        )
+
+        file.write(
+            "Format: Layer,Start,End,"
+            "Style,Name,MarginL,MarginR,"
+            "MarginV,Effect,Text\n"
+        )
+
+        for (
             start,
             end,
+            speaker,
             text,
-        ) in enumerate(entries, start=1):
+        ) in entries:
 
-            file.write(
-                f"{index}\n"
+            style_name = style_names.get(
+                speaker,
+                safe_style_name(
+                    DEFAULT_SPEAKER
+                ),
+            )
+
+            text = (
+                text
+                .replace(
+                    "\n",
+                    "\\N",
+                )
+                .replace(
+                    "\r",
+                    "",
+                )
             )
 
             file.write(
-                f"{format_timestamp(start)} --> "
-                f"{format_timestamp(end)}\n"
-            )
-
-            file.write(
-                f"{text}\n\n"
+                f"Dialogue: 0,"
+                f"{format_ass_timestamp(start)},"
+                f"{format_ass_timestamp(end)},"
+                f"{style_name},"
+                f",0,0,0,,"
+                f"{text}\n"
             )
 
     print(
-        f"SRT generado: {output_file}"
+        f"ASS generado: {output_file}"
     )
 
     print(
@@ -194,9 +402,15 @@ def create_srt(
     )
 
     print(
-        f"Desplazamiento aplicado: "
-        f"-{clip_start:.3f}s"
+        "Hablantes detectados:"
     )
+
+    for speaker in sorted(
+        speakers
+    ):
+        print(
+            f"  - {speaker}"
+        )
 
 
 def burn_subtitles(
@@ -205,39 +419,48 @@ def burn_subtitles(
     output_path: str,
 ) -> None:
 
-    video_file = Path(video_path)
-    subtitle_file = Path(subtitle_path)
-    output_file = Path(output_path)
+    video_file = Path(
+        video_path
+    )
+
+    subtitle_file = Path(
+        subtitle_path
+    )
+
+    output_file = Path(
+        output_path
+    )
 
     if not video_file.exists():
         raise FileNotFoundError(
-            f"No existe el vídeo: {video_file}"
+            f"No existe el vídeo: "
+            f"{video_file}"
         )
 
     if not subtitle_file.exists():
         raise FileNotFoundError(
-            f"No existe el SRT: {subtitle_file}"
+            f"No existe el ASS: "
+            f"{subtitle_file}"
         )
 
-    # Escapamos la ruta del SRT para FFmpeg/libass.
     subtitle_path_ffmpeg = (
         str(subtitle_file)
-        .replace("\\", "/")
-        .replace(":", r"\:")
-        .replace("'", r"\'")
-    )
-
-    force_style = (
-        "FontName=Arial,"
-        "FontSize=18,"
-        "Bold=1,"
-        "Alignment=2,"
-        "MarginV=60"
+        .replace(
+            "\\",
+            "/",
+        )
+        .replace(
+            ":",
+            r"\:",
+        )
+        .replace(
+            "'",
+            r"\'",
+        )
     )
 
     video_filter = (
-        f"subtitles='{subtitle_path_ffmpeg}'"
-        f":force_style='{force_style}'"
+        f"ass='{subtitle_path_ffmpeg}'"
     )
 
     command = [
@@ -253,7 +476,8 @@ def burn_subtitles(
     ]
 
     print(
-        "Quemando subtítulos en el vídeo..."
+        "Quemando subtítulos "
+        "multicolor en el vídeo..."
     )
 
     subprocess.run(
@@ -262,15 +486,21 @@ def burn_subtitles(
     )
 
     print(
-        f"Vídeo final creado: {output_file}"
+        f"Vídeo final creado: "
+        f"{output_file}"
     )
 
 
-if __name__ == "__main__":
+def main() -> None:
 
-    if len(sys.argv) not in (4, 5):
+    if len(sys.argv) not in (
+        4,
+        5,
+    ):
+
         print(
-            "Uso: python src/subtitle_burner.py "
+            "Uso: python "
+            "src/subtitle_burner.py "
             "<video.mp4> "
             "<subtitles.txt> "
             "<output.mp4> "
@@ -280,32 +510,48 @@ if __name__ == "__main__":
         sys.exit(1)
 
     video_path = sys.argv[1]
+
     subtitles_path = sys.argv[2]
+
     output_path = sys.argv[3]
 
     clip_start = 0.0
 
     if len(sys.argv) == 5:
+
         try:
-            clip_start = float(sys.argv[4])
-        except ValueError:
-            print(
-                "ERROR: clip_start debe ser un número."
+
+            clip_start = float(
+                sys.argv[4]
             )
+
+        except ValueError:
+
+            print(
+                "ERROR: clip_start "
+                "debe ser un número."
+            )
+
             sys.exit(1)
 
-    srt_path = Path(output_path).with_suffix(
-        ".srt"
+    ass_path = Path(
+        output_path
+    ).with_suffix(
+        ".ass"
     )
 
-    create_srt(
+    create_ass(
         subtitles_path,
-        str(srt_path),
+        str(ass_path),
         clip_start,
     )
 
     burn_subtitles(
         video_path,
-        str(srt_path),
+        str(ass_path),
         output_path,
     )
+
+
+if __name__ == "__main__":
+    main()
