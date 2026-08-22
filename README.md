@@ -1,45 +1,20 @@
 # Twitch TikTok Agent
 
-Agente automático para transformar clips de Twitch en contenido para TikTok.
+Agente automático para transformar clips de Twitch en contenido listo para publicar manualmente en TikTok.
 
 ## Objetivo
 
-Flujo previsto:
-
-Twitch
- ↓
-Procesamiento
- ↓
-Vídeo final + subtítulos
- ↓
-Telegram
- ↓
-👀 Revisas
- ↓
-✏️ Si hace falta, corriges
- ↓
-Telegram te manda el vídeo corregido
- ↓
-✅ AUTORIZAR
- ↓
-Telegram te manda:
-   📋 Título
-   📝 Descripción
-   #️⃣ Hashtags
-   📋 Texto completo para copiar
- ↓
-TÚ DESCARGAS EL VÍDEO DEL MENSAJE DE TELEGRAM
- ↓
-TikTok
+Twitch → procesamiento → subtítulos → Telegram → corrección → aprobación → mensaje con datos TikTok → descargar vídeo → subir manualmente a TikTok.
 
 ## Principios
 
 - El PC del usuario no necesita estar encendido.
 - El agente no tendrá acceso a archivos personales del usuario.
 - Ningún vídeo se publicará sin aprobación explícita.
+- La publicación final en TikTok será siempre manual.
+- El vídeo descargado desde Telegram será exactamente el vídeo final aprobado.
 - Prioridad a herramientas gratuitas y open source.
 - No contratar servicios de pago sin autorización.
-- El vídeo aprobado debe ser exactamente el vídeo del borrador subido.
 
 ## Componentes previstos
 
@@ -48,7 +23,6 @@ TikTok
 - FFmpeg
 - IA
 - Telegram
-- TikTok API
 
 ## Estado
 
@@ -61,5 +35,8 @@ TikTok
 - [ ] Análisis mediante IA
 - [ ] Generación de metadatos
 - [ ] Sistema de aprobación
-- [ ] Integración con TikTok
+- [ ] Generación de hashtags optimizados
+- [ ] Mensaje final de publicación en Telegram
+- [ ] Identificación de hablantes
+- [ ] Colores de subtítulos por hablante
 - [ ] Prueba completa
