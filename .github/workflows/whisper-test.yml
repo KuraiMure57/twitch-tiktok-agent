@@ -710,12 +710,29 @@ jobs:
 
       # ============================================================
       # VALIDAR GEMINI
+      #
+      # IMPORTANTE:
+      # ai_response_validator.py necesita 3 argumentos:
+      #
+      # 1. ai_response.json
+      # 2. corrected_subtitles.json
+      # 3. archivo de salida
+      #
       # ============================================================
 
       - name: Validate AI response
         run: |
           python src/ai_response_validator.py \
-            ai_response.json
+            ai_response.json \
+            corrected_subtitles.json \
+            validated_subtitles.txt
+
+      - name: Show validated subtitles
+        run: |
+          echo "=============================="
+          echo "SUBTÍTULOS VALIDADOS"
+          echo "=============================="
+          cat validated_subtitles.txt
 
       # ============================================================
       # SCORING
@@ -747,6 +764,13 @@ jobs:
 
       # ============================================================
       # SUBTÍTULOS FINALES
+      #
+      # Aquí se aplica la división final de texto.
+      #
+      # El handler tiene MAX_WORDS_PER_SUBTITLE = 3.
+      #
+      # Esto significa que aunque Gemini haya juntado varias
+      # frases en un segmento largo, se vuelve a dividir aquí.
       # ============================================================
 
       - name: Build final subtitles
@@ -886,16 +910,6 @@ jobs:
 
       # ============================================================
       # PUBLICACIÓN MANUAL
-      #
-      # Si se aprueba:
-      #
-      # 1. El vídeo final ya está en Telegram.
-      # 2. El usuario lo descarga desde Telegram.
-      # 3. Este paso manda OTRO mensaje con los datos.
-      #
-      # NO se descarga ningún ZIP.
-      # NO se crea publication_package.
-      # NO se sube nada a TikTok automáticamente.
       # ============================================================
 
       - name: Send TikTok publication information
