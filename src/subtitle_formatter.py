@@ -61,16 +61,16 @@ def format_subtitles(
     # CONFIGURACIÓN DE SUBTÍTULOS
     # ---------------------------------------------------------
     #
-    # Queremos evitar que aparezcan demasiadas palabras
-    # juntas en pantalla.
+    # Máximo 3 palabras por subtítulo.
     #
-    # Máximo 4 palabras por subtítulo.
+    # Al aumentar considerablemente el tamaño de fuente,
+    # reducimos la cantidad de palabras para mantener
+    # una lectura limpia en formato vertical.
+    #
     # Máximo 2 segundos de duración.
-    #
-    # La puntuación también fuerza un cambio.
     # ---------------------------------------------------------
 
-    max_words = 4
+    max_words = 3
 
     max_duration = 2.0
 
