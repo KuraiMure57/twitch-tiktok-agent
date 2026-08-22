@@ -5,10 +5,23 @@ from pathlib import Path
 
 TIMESTAMP_TOLERANCE = 0.05
 
-# Número máximo de palabras que aparecerán a la vez.
-# Se aplica DESPUÉS de la respuesta de Gemini.
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
+
+# Máximo de palabras visibles simultáneamente.
+#
+# IMPORTANTE:
+# Gemini puede juntar varias frases y devolver una frase
+# mucho más larga que las originales.
+#
+# Por eso este límite se aplica DESPUÉS de Gemini.
 MAX_WORDS_PER_SUBTITLE = 3
 
+
+# ============================================================
+# JSON
+# ============================================================
 
 def load_json(path: str) -> dict:
     file_path = Path(path)
@@ -25,11 +38,36 @@ def load_json(path: str) -> dict:
         return json.load(file)
 
 
+def get_segments(data: dict) -> list:
+    segments = data.get(
+        "segments",
+        [],
+    )
+
+    if not isinstance(
+        segments,
+        list,
+    ):
+        raise ValueError(
+            "El campo 'segments' debe ser una lista."
+        )
+
+    return segments
+
+
+# ============================================================
+# TEXTO
+# ============================================================
+
 def normalize_text(text: str) -> str:
     return " ".join(
         text.strip().lower().split()
     )
 
+
+# ============================================================
+# PUNTUACIÓN EMOCIONAL
+# ============================================================
 
 def looks_like_emotional_change(
     original: str,
@@ -103,8 +141,7 @@ def looks_like_emotional_change(
         ):
 
             common_words = (
-                original_words
-                .intersection(
+                original_words.intersection(
                     corrected_words
                 )
             )
@@ -184,29 +221,37 @@ def restore_emotional_punctuation(
     return corrected
 
 
-def get_segments(data: dict) -> list:
+# ============================================================
+# SPEAKER
+# ============================================================
 
-    segments = data.get(
-        "segments",
-        [],
-    )
+def get_speaker(
+    segment: dict,
+    fallback: str = "kuraimure",
+) -> str:
 
-    if not isinstance(
-        segments,
-        list,
-    ):
-        raise ValueError(
-            "El campo 'segments' "
-            "debe ser una lista."
+    speaker = str(
+        segment.get(
+            "speaker",
+            fallback,
         )
+    ).strip()
 
-    return segments
+    if not speaker:
+        return fallback
 
+    return speaker
+
+
+# ============================================================
+# MATCHING DE SEGMENTOS
+# ============================================================
 
 def find_matching_original_segment(
     ai_segment: dict,
     original_segments: list,
 ):
+
     ai_start = float(
         ai_segment["start"]
     )
@@ -256,8 +301,7 @@ def find_matching_original_segment(
 
             if (
                 best_difference is None
-                or difference
-                < best_difference
+                or difference < best_difference
             ):
 
                 best_match = original
@@ -266,23 +310,9 @@ def find_matching_original_segment(
     return best_match
 
 
-def get_speaker(
-    segment: dict,
-    fallback: str = "kuraimure",
-) -> str:
-
-    speaker = str(
-        segment.get(
-            "speaker",
-            fallback,
-        )
-    ).strip()
-
-    if not speaker:
-        return fallback
-
-    return speaker
-
+# ============================================================
+# CREAR SEGMENTOS FINALES
+# ============================================================
 
 def build_final_segments(
     ai_response: dict,
@@ -369,7 +399,7 @@ def build_final_segments(
                 )
             )
 
-            # Mantenemos los timestamps originales.
+            # Conservamos los timestamps originales.
             start = float(
                 original["start"]
             )
@@ -390,7 +420,9 @@ def build_final_segments(
 
         else:
 
-            # Segmento nuevo localizado por Gemini.
+            # Gemini puede recuperar segmentos que
+            # Whisper no detectó correctamente.
+
             start = ai_start
             end = ai_end
             final_text = ai_text
@@ -428,31 +460,14 @@ def build_final_segments(
     return result
 
 
+# ============================================================
+# DIVIDIR FRASES LARGAS
+# ============================================================
+
 def split_long_subtitles(
     segments: list,
     max_words: int = MAX_WORDS_PER_SUBTITLE,
 ) -> list:
-    """
-    Divide los textos largos DESPUÉS de Gemini.
-
-    Esto es importante porque subtitle_formatter.py
-    puede crear inicialmente frases cortas, pero Gemini
-    puede volver a juntarlas en frases mucho más largas.
-
-    Ejemplo:
-
-        "no sé si ves mi cámara pero la"
-
-    se convierte en:
-
-        "no sé si"
-        "ves mi"
-        "cámara pero"
-        "la"
-
-    El tiempo total del segmento se mantiene y se
-    reparte proporcionalmente entre las partes.
-    """
 
     if max_words < 1:
         raise ValueError(
@@ -475,7 +490,7 @@ def split_long_subtitles(
 
         words = text.split()
 
-        # Si ya cumple el límite, no hacemos nada.
+        # Ya cumple el límite.
         if len(words) <= max_words:
             result.append(segment)
             continue
@@ -502,6 +517,19 @@ def split_long_subtitles(
         total_words = len(words)
         elapsed_words = 0
 
+        speaker = get_speaker(
+            segment,
+            "kuraimure",
+        )
+
+        print(
+            "Dividiendo segmento: "
+            f"{len(words)} palabras -> "
+            f"{len(chunks)} subtítulos | "
+            f"[{speaker}] | "
+            f"{text}"
+        )
+
         for chunk_index, chunk in enumerate(
             chunks
         ):
@@ -517,9 +545,15 @@ def split_long_subtitles(
 
             elapsed_words += len(chunk)
 
-            if chunk_index == len(chunks) - 1:
+            if (
+                chunk_index
+                == len(chunks) - 1
+            ):
+
                 chunk_end = end
+
             else:
+
                 chunk_end = (
                     start
                     + duration
@@ -539,42 +573,40 @@ def split_long_subtitles(
                         chunk_end,
                         3,
                     ),
-                    "text": " ".join(chunk),
-                    "speaker": get_speaker(
-                        segment,
-                        "kuraimure",
+                    "text": " ".join(
+                        chunk
                     ),
+                    "speaker": speaker,
                 }
             )
 
-        print(
-            "Segmento dividido por exceso "
-            "de palabras: "
-            f"{len(words)} -> "
-            f"{len(chunks)} subtítulos | "
-            f"[{get_speaker(segment)}]"
-        )
-
     return result
 
+
+# ============================================================
+# ELIMINAR DUPLICADOS
+# ============================================================
 
 def remove_duplicate_segments(
     segments: list,
 ) -> list:
 
     result = []
-
     seen = set()
 
     for segment in segments:
 
         key = (
             round(
-                float(segment["start"]),
+                float(
+                    segment["start"]
+                ),
                 3,
             ),
             round(
-                float(segment["end"]),
+                float(
+                    segment["end"]
+                ),
                 3,
             ),
             normalize_text(
@@ -594,6 +626,10 @@ def remove_duplicate_segments(
 
     return result
 
+
+# ============================================================
+# ESCRIBIR RESULTADO
+# ============================================================
 
 def write_final_subtitles(
     segments: list,
@@ -619,7 +655,9 @@ def write_final_subtitles(
                 segment["end"]
             )
 
-            text = segment["text"]
+            text = str(
+                segment["text"]
+            ).strip()
 
             speaker = get_speaker(
                 segment,
@@ -634,13 +672,17 @@ def write_final_subtitles(
             )
 
 
+# ============================================================
+# MAIN
+# ============================================================
+
 def main() -> None:
 
     if len(sys.argv) != 4:
 
         print(
             "Uso: python "
-            "src/ai_response_handler.py "
+            "src/ai_response_validator.py "
             "<ai_response.json> "
             "<corrected_subtitles.json> "
             "<final_subtitles.txt>"
@@ -654,6 +696,16 @@ def main() -> None:
 
     try:
 
+        print(
+            "========================================"
+        )
+        print(
+            "PROCESANDO RESPUESTA DE GEMINI"
+        )
+        print(
+            "========================================"
+        )
+
         ai_response = load_json(
             ai_response_path
         )
@@ -666,34 +718,65 @@ def main() -> None:
             original_data
         )
 
+        print(
+            f"Segmentos originales: "
+            f"{len(original_segments)}"
+        )
+
+        ai_segments = get_segments(
+            ai_response
+        )
+
+        print(
+            f"Segmentos recibidos de Gemini: "
+            f"{len(ai_segments)}"
+        )
+
+        # ----------------------------------------------------
+        # 1. Construir segmentos finales
+        # ----------------------------------------------------
+
         final_segments = build_final_segments(
             ai_response,
             original_segments,
         )
 
-        # ==================================================
-        # IMPORTANTE:
-        # Gemini puede devolver frases mucho más largas
-        # que las creadas originalmente.
-        #
-        # Por eso aplicamos el límite OTRA VEZ AQUÍ,
-        # DESPUÉS de Gemini.
-        # ==================================================
-
-        segments_before_split = len(
-            final_segments
+        print(
+            f"Segmentos después de Gemini: "
+            f"{len(final_segments)}"
         )
+
+        # ----------------------------------------------------
+        # 2. DIVIDIR FRASES LARGAS
+        #
+        # ESTA ES LA PARTE IMPORTANTE.
+        #
+        # Se hace DESPUÉS de Gemini.
+        # ----------------------------------------------------
 
         final_segments = split_long_subtitles(
             final_segments,
             MAX_WORDS_PER_SUBTITLE,
         )
 
+        print(
+            f"Segmentos después de dividir: "
+            f"{len(final_segments)}"
+        )
+
+        # ----------------------------------------------------
+        # 3. Eliminar duplicados
+        # ----------------------------------------------------
+
         final_segments = (
             remove_duplicate_segments(
                 final_segments
             )
         )
+
+        # ----------------------------------------------------
+        # 4. Guardar
+        # ----------------------------------------------------
 
         write_final_subtitles(
             final_segments,
@@ -702,39 +785,27 @@ def main() -> None:
 
         print("")
         print(
-            "Subtítulos finales creados."
+            "========================================"
+        )
+        print(
+            "SUBTÍTULOS FINALES CREADOS"
+        )
+        print(
+            "========================================"
         )
 
         print(
-            "Los timestamps existentes "
-            "se mantienen."
-        )
-
-        print(
-            "Los segmentos que Whisper "
-            "omitió pueden ser añadidos "
-            "por Gemini."
-        )
-
-        print(
-            "La información del hablante "
-            "se conserva."
-        )
-
-        print(
-            "Segmentos antes de dividir: "
-            f"{segments_before_split}"
-        )
-
-        print(
-            "Máximo de palabras por "
-            "subtítulo: "
+            f"Máximo de palabras simultáneas: "
             f"{MAX_WORDS_PER_SUBTITLE}"
         )
 
         print(
-            "Segmentos finales: "
+            f"Segmentos finales: "
             f"{len(final_segments)}"
+        )
+
+        print(
+            f"Archivo: {output_path}"
         )
 
     except Exception as error:
