@@ -248,6 +248,26 @@ def send_message(
 
 
 def read_subtitles(path):
+    """
+    Lee los subtítulos.
+
+    Formato nuevo:
+
+        start|end|speaker|text
+
+    Ejemplo:
+
+        0.000|2.500|kuraimure|Hola chicos
+
+    También acepta el formato antiguo:
+
+        start|end|text
+
+    En ese caso se asigna automáticamente
+    'kuraimure' como speaker para mantener
+    compatibilidad con archivos antiguos.
+    """
+
     if not path.exists():
         raise FileNotFoundError(
             f"No existe el archivo de subtítulos: {path}"
@@ -266,18 +286,50 @@ def read_subtitles(path):
             if not line.strip():
                 continue
 
-            parts = line.split("|", 2)
+            # -------------------------------------------------
+            # NUEVO FORMATO
+            #
+            # start|end|speaker|text
+            #
+            # El split máximo de 3 permite que el texto
+            # pueda contener el carácter "|" sin romper
+            # el formato.
+            # -------------------------------------------------
 
-            if len(parts) != 3:
+            parts = line.split("|", 3)
+
+            if len(parts) == 4:
+
+                start, end, speaker, text = parts
+
+                speaker = speaker.strip()
+
+                if not speaker:
+                    speaker = "kuraimure"
+
+            # -------------------------------------------------
+            # FORMATO ANTIGUO
+            #
+            # start|end|text
+            #
+            # -------------------------------------------------
+
+            elif len(parts) == 3:
+
+                start, end, text = parts
+
+                speaker = "kuraimure"
+
+            else:
+
                 raise ValueError(
                     f"Línea de subtítulo no válida: {line}"
                 )
 
-            start, end, text = parts
-
             segments.append({
                 "start": start,
                 "end": end,
+                "speaker": speaker,
                 "text": text,
             })
 
@@ -288,15 +340,31 @@ def write_subtitles(
     path,
     segments,
 ):
+    """
+    Guarda los subtítulos utilizando el nuevo formato:
+
+        start|end|speaker|text
+    """
+
     with path.open(
         "w",
         encoding="utf-8",
     ) as file:
 
         for segment in segments:
+
+            speaker = segment.get(
+                "speaker",
+                "kuraimure",
+            )
+
+            if not speaker:
+                speaker = "kuraimure"
+
             file.write(
                 f"{segment['start']}|"
                 f"{segment['end']}|"
+                f"{speaker}|"
                 f"{segment['text']}\n"
             )
 
@@ -314,6 +382,16 @@ def get_segment_label(
 def format_subtitles_for_telegram(
     segments,
 ):
+    """
+    Prepara la lista de subtítulos que se envía
+    al usuario por Telegram.
+
+    Ahora también muestra el speaker:
+
+        1. [kuraimure] Hola
+        2. [amigo] ¿Qué pasa?
+    """
+
     lines = [
         "📝 SUBTÍTULOS ACTUALES",
         "",
@@ -331,13 +409,21 @@ def format_subtitles_for_telegram(
         if not text:
             text = "[sin texto]"
 
+        speaker = segment.get(
+            "speaker",
+            "kuraimure",
+        )
+
+        if not speaker:
+            speaker = "kuraimure"
+
         label = get_segment_label(
             segment,
             index,
         )
 
         lines.append(
-            f"{label}. {text}"
+            f"{label}. [{speaker}] {text}"
         )
 
     lines.extend([
@@ -686,6 +772,22 @@ def apply_corrections(
         for segment in segments
     ]
 
+    # ---------------------------------------------------------
+    # ASEGURAR SPEAKER
+    # ---------------------------------------------------------
+
+    for segment in updated:
+
+        speaker = segment.get(
+            "speaker",
+            "kuraimure",
+        )
+
+        if not speaker:
+            speaker = "kuraimure"
+
+        segment["speaker"] = speaker
+
     changed = False
 
     # ---------------------------------------------------------
@@ -807,10 +909,20 @@ def apply_corrections(
 
             segment["text"] = new_text
 
+            # -------------------------------------------------
+            # EL SPEAKER SE MANTIENE INTACTO
+            # -------------------------------------------------
+
+            segment.setdefault(
+                "speaker",
+                "kuraimure",
+            )
+
             changed = True
 
             print(
                 f"Subtítulo {base_index} corregido: "
+                f"[{segment['speaker']}] "
                 f"{new_text}"
             )
 
@@ -859,6 +971,22 @@ def apply_corrections(
 
                 continue
 
+            # -------------------------------------------------
+            # UN SUBTÍTULO NUEVO AL FINAL HEREDA EL SPEAKER
+            # DEL ÚLTIMO SUBTÍTULO
+            # -------------------------------------------------
+
+            if updated:
+
+                speaker = updated[-1].get(
+                    "speaker",
+                    "kuraimure",
+                )
+
+            else:
+
+                speaker = "kuraimure"
+
             updated.append({
                 "start": format_seconds(
                     start_value
@@ -866,6 +994,7 @@ def apply_corrections(
                 "end": format_seconds(
                     end_value
                 ),
+                "speaker": speaker,
                 "text": new_text,
                 "_label": str(
                     base_index
@@ -877,6 +1006,7 @@ def apply_corrections(
             print(
                 f"Nuevo subtítulo añadido: "
                 f"{base_index}. "
+                f"[{speaker}] "
                 f"{new_start}-{new_end} "
                 f"{new_text}"
             )
@@ -946,6 +1076,21 @@ def apply_corrections(
         else:
 
             next_segment = None
+
+        # -----------------------------------------------------
+        # SPEAKER DE LAS INSERCIONES
+        #
+        # Por defecto heredan el speaker del
+        # subtítulo anterior.
+        # -----------------------------------------------------
+
+        insertion_speaker = previous_segment.get(
+            "speaker",
+            "kuraimure",
+        )
+
+        if not insertion_speaker:
+            insertion_speaker = "kuraimure"
 
         # -----------------------------------------------------
         # VALIDAR ÍNDICES REPETIDOS
@@ -1063,12 +1208,14 @@ def apply_corrections(
                 "end": format_seconds(
                     end_value
                 ),
+                "speaker": insertion_speaker,
                 "text": item["text"],
                 "_label": label,
             })
 
             print(
                 f"Nuevo subtítulo {label}: "
+                f"[{insertion_speaker}] "
                 f"{format_seconds(start_value)}-"
                 f"{format_seconds(end_value)} "
                 f"{item['text']}"
