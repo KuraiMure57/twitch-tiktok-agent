@@ -141,6 +141,58 @@ timestamps según el momento en que realmente se escucha.
 12. Si una frase se dice claramente con sorpresa, miedo,
 grito o exclamación, utiliza los signos correspondientes.
 
+13. Identifica también quién está hablando en cada segmento.
+
+Debes distinguir las diferentes voces que aparecen en el vídeo.
+
+El streamer principal es:
+
+"kuraimure"
+
+Si puedes identificar claramente que habla el streamer,
+utiliza exactamente:
+
+"kuraimure"
+
+Para otras personas utiliza identificadores consistentes:
+
+"speaker_2"
+"speaker_3"
+"speaker_4"
+"speaker_5"
+"speaker_6"
+
+IMPORTANTE:
+
+- La misma voz debe utilizar siempre el mismo identificador.
+- No cambies de identificador para una misma persona.
+- Si una persona habla varias veces durante el vídeo,
+  conserva su identificador.
+- No inventes personas que no aparezcan.
+- Si solamente existe una voz, todos los segmentos deben
+  utilizar "kuraimure".
+- Si hay varias voces pero no puedes identificar con certeza
+  quién es quién, utiliza speaker_2, speaker_3, etc.
+- El campo "speaker" es obligatorio en TODOS los segmentos.
+
+Ejemplo:
+
+{
+  "start": 1.56,
+  "end": 2.08,
+  "text": "¡Mira eso!",
+  "speaker": "kuraimure"
+}
+
+Otro ejemplo:
+
+{
+  "start": 2.10,
+  "end": 3.50,
+  "text": "¿Pero qué ha pasado?",
+  "speaker": "speaker_2"
+}
+
 Ejemplo:
 
 La Llorona
@@ -176,6 +228,7 @@ La estructura OBLIGATORIA es:
       "start": 1.56,
       "end": 2.08,
       "text": "texto"
+      "speaker": "kuraimure"
     }}
   ]
 }}
@@ -370,6 +423,16 @@ def normalize_segments(
         if end <= start:
             continue
 
+        speaker = str(
+            segment.get(
+                "speaker",
+                "kuraimure",
+            )
+        ).strip()
+        
+        if not speaker:
+            speaker = "kuraimure"
+        
         cleaned_segments.append(
             {
                 "start": round(
@@ -381,6 +444,7 @@ def normalize_segments(
                     3,
                 ),
                 "text": text,
+                "speaker": speaker,
             }
         )
 
