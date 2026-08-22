@@ -50,13 +50,16 @@ jobs:
             src/tiktok_test.mp4 \
             metadata.json
 
-      # Si hay algún problema, este paso te empaquetará la foto de la pantalla para que la descargues
-      - name: Descargar captura de pantalla de depuración si falla
-        if: failure()
+      # Forzamos a que guarde la imagen siempre, pase lo que pase
+      - name: Descargar captura de pantalla de depuración
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tiktok-debug-image
           path: debug_tiktok.png
+
+          uses: actions/upload-artifact@v4
+          with:
 
       # Este paso lo dejamos para que compruebe si tu script generó el reporte final
       - name: Mostrar resultado de publicación
