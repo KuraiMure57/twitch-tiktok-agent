@@ -301,6 +301,16 @@ def write_subtitles(
             )
 
 
+def get_segment_label(
+    segment,
+    index,
+):
+    return segment.get(
+        "_label",
+        str(index),
+    )
+
+
 def format_subtitles_for_telegram(
     segments,
 ):
@@ -321,11 +331,14 @@ def format_subtitles_for_telegram(
         if not text:
             text = "[sin texto]"
 
-        lines.append(
-            f"{index}. {text}"
+        label = get_segment_label(
+            segment,
+            index,
         )
 
-    next_number = len(segments) + 1
+        lines.append(
+            f"{label}. {text}"
+        )
 
     lines.extend([
         "",
@@ -334,23 +347,31 @@ def format_subtitles_for_telegram(
         "1. Texto corregido",
         "2. Otro texto corregido",
         "",
-        "➕ PARA AÑADIR TEXTO CON TIEMPOS:",
+        "➕ PARA AÑADIR UNA FRASE ENTRE DOS:",
         "",
-        f"{next_number}. [0.00-0.7] Texto nuevo",
+        "2.1 Abajo no hay ruidos.",
+        "2.2 Otra frase entre el 2 y el 3.",
+        "3.1 Una frase después del 3.",
         "",
-        "⏱️ FORMATO DE TIEMPOS:",
-        "Antes del punto = minutos",
-        "Después del punto = segundos",
+        "El sistema calculará automáticamente "
+        "el tiempo si existe espacio disponible.",
+        "",
+        "⏱️ SI QUIERES CONTROLAR EL TIEMPO:",
+        "",
+        "2.1 [0.4-0.5] Abajo no hay ruidos.",
+        "",
+        "FORMATO:",
+        "minutos.segundos",
         "",
         "0.7 = 7 segundos",
         "0.12 = 12 segundos",
         "1.2 = 1 minuto y 2 segundos",
         "1.15 = 1 minuto y 15 segundos",
-        "7 = 7 minutos",
-        "7.50 = 7 minutos y 50 segundos",
         "",
-        "Si no pones [inicio-fin],",
-        "se mantienen los tiempos actuales.",
+        "También puedes añadir varias:",
+        "2.1 Primera frase",
+        "2.2 Segunda frase",
+        "2.3 Tercera frase",
     ])
 
     return "\n".join(lines)
@@ -435,13 +456,27 @@ def parse_correction_line(line):
     """
     Formatos aceptados:
 
+    Corrección:
+
     1. Texto corregido
 
-    2. Otro texto
+    2. Otro texto corregido
 
-    3. [0.00-0.7] Texto nuevo
+    Corrección con tiempo:
 
-    4. [1.2-1.15] Texto nuevo
+    2. [0.4-0.5] Texto corregido
+
+    Nueva frase entre subtítulos:
+
+    2.1 Texto nuevo
+
+    2.2 Otra frase
+
+    3.1 Texto después del 3
+
+    Nueva frase con tiempo:
+
+    2.1 [0.4-0.5] Texto nuevo
     """
 
     line = line.strip()
@@ -449,22 +484,36 @@ def parse_correction_line(line):
     if not line:
         return None
 
+    # ---------------------------------------------------------
+    # IDENTIFICADOR NORMAL O JERÁRQUICO
+    # ---------------------------------------------------------
+
     match = re.match(
-        r"^(\d+)\s*[\.\|]?\s*(.*)$",
+        r"^(\d+)(?:\.(\d+))?\s*[\.\|]?\s*(.*)$",
         line,
     )
 
     if not match:
         return None
 
-    index = int(
+    base_index = int(
         match.group(1)
     )
 
-    content = match.group(2).strip()
+    insertion_index = (
+        int(match.group(2))
+        if match.group(2) is not None
+        else None
+    )
+
+    content = match.group(3).strip()
 
     start = None
     end = None
+
+    # ---------------------------------------------------------
+    # TIEMPOS OPCIONALES
+    # ---------------------------------------------------------
 
     time_match = re.match(
         r"^\["
@@ -477,15 +526,119 @@ def parse_correction_line(line):
     )
 
     if time_match:
+
         start = time_match.group(1)
+
         end = time_match.group(2)
+
         content = time_match.group(3).strip()
 
+    return {
+        "base_index": base_index,
+        "insertion_index": insertion_index,
+        "start": start,
+        "end": end,
+        "text": content,
+    }
+
+
+def get_numeric_time(segment, key):
+    return float(
+        segment.get(
+            key,
+            0,
+        )
+    )
+
+
+def calculate_auto_time(
+    previous_segment,
+    next_segment,
+    position,
+    total,
+):
+    """
+    Reparte automáticamente el espacio disponible
+    entre el subtítulo anterior y el siguiente.
+
+    Si tenemos:
+
+    2 -> termina en 3.10
+    3 -> empieza en 5.54
+
+    y añadimos 2.1, se coloca dentro de:
+
+    3.10 -> 5.54
+
+    Si añadimos 2.1, 2.2 y 2.3, el hueco se
+    divide entre las tres frases.
+    """
+
+    previous_end = (
+        get_numeric_time(
+            previous_segment,
+            "end",
+        )
+    )
+
+    next_start = (
+        get_numeric_time(
+            next_segment,
+            "start",
+        )
+        if next_segment is not None
+        else previous_end + 3.0
+    )
+
+    available = (
+        next_start
+        - previous_end
+    )
+
+    if available <= 0.05:
+        raise ValueError(
+            "No hay espacio suficiente entre "
+            "los subtítulos para insertar "
+            "la nueva frase automáticamente."
+        )
+
+    # Dejamos un pequeño margen para evitar
+    # que dos subtítulos queden pegados.
+    margin = min(
+        0.03,
+        available / 10,
+    )
+
+    usable = (
+        available
+        - (margin * 2)
+    )
+
+    if usable <= 0.05:
+        raise ValueError(
+            "El espacio disponible es demasiado "
+            "pequeño para insertar el subtítulo."
+        )
+
+    duration = (
+        usable / total
+    )
+
+    start = (
+        previous_end
+        + margin
+        + (position * duration)
+    )
+
+    end = (
+        previous_end
+        + margin
+        + ((position + 1) * duration)
+    )
+
     return (
-        index,
         start,
         end,
-        content,
     )
 
 
@@ -494,18 +647,29 @@ def apply_corrections(
     correction_text,
 ):
     """
-    Aplica correcciones y permite añadir
-    nuevos subtítulos.
+    Aplica correcciones y permite insertar
+    subtítulos entre otros mediante:
 
-    Ejemplo:
+        2.1 Texto
+        2.2 Texto
+        2.3 Texto
 
-    Si existen 2 subtítulos:
+    2.1 significa:
 
-    1. Texto corregido
-    2. Otro texto corregido
-    3. [0.00-0.7] Texto nuevo
+        después del subtítulo 2
+        y antes del subtítulo 3.
 
-    El número 3 crea un nuevo segmento.
+    3.1 significa:
+
+        después del subtítulo 3
+        y antes del subtítulo 4.
+
+    Si no se especifican tiempos, el sistema
+    reparte automáticamente el hueco disponible.
+
+    También se puede especificar manualmente:
+
+        2.1 [4.2-4.7] Texto
     """
 
     lines = [
@@ -524,6 +688,25 @@ def apply_corrections(
 
     changed = False
 
+    # ---------------------------------------------------------
+    # ASEGURAR ETIQUETAS BASE
+    # ---------------------------------------------------------
+
+    for index, segment in enumerate(
+        updated,
+        start=1,
+    ):
+        segment.setdefault(
+            "_label",
+            str(index),
+        )
+
+    # ---------------------------------------------------------
+    # PRIMERO: CORRECCIONES NORMALES
+    # ---------------------------------------------------------
+
+    insertions = []
+
     for line in lines:
 
         parsed = parse_correction_line(
@@ -533,24 +716,61 @@ def apply_corrections(
         if parsed is None:
             continue
 
-        (
-            index,
-            new_start,
-            new_end,
-            new_text,
-        ) = parsed
+        base_index = parsed[
+            "base_index"
+        ]
 
-        # -------------------------------------------------
-        # MODIFICAR UN SUBTÍTULO EXISTENTE
-        # -------------------------------------------------
+        insertion_index = parsed[
+            "insertion_index"
+        ]
 
-        if index <= len(updated):
+        new_start = parsed[
+            "start"
+        ]
 
-            segment = updated[index - 1]
+        new_end = parsed[
+            "end"
+        ]
+
+        new_text = parsed[
+            "text"
+        ]
+
+        if not new_text:
+            continue
+
+        # -----------------------------------------------------
+        # INSERCIÓN JERÁRQUICA
+        # -----------------------------------------------------
+
+        if insertion_index is not None:
+
+            insertions.append(
+                {
+                    "base_index": base_index,
+                    "insertion_index": insertion_index,
+                    "start": new_start,
+                    "end": new_end,
+                    "text": new_text,
+                }
+            )
+
+            continue
+
+        # -----------------------------------------------------
+        # MODIFICAR SUBTÍTULO EXISTENTE
+        # -----------------------------------------------------
+
+        if base_index <= len(updated):
+
+            segment = updated[
+                base_index - 1
+            ]
 
             if new_start is not None:
 
                 try:
+
                     start_value = parse_custom_time(
                         new_start
                     )
@@ -589,24 +809,30 @@ def apply_corrections(
 
             changed = True
 
+            print(
+                f"Subtítulo {base_index} corregido: "
+                f"{new_text}"
+            )
+
             continue
 
-        # -------------------------------------------------
-        # AÑADIR UN NUEVO SUBTÍTULO
-        # -------------------------------------------------
+        # -----------------------------------------------------
+        # COMPATIBILIDAD CON EL SISTEMA ANTERIOR
+        # -----------------------------------------------------
 
-        if index == len(updated) + 1:
+        if base_index == len(updated) + 1:
 
             if new_start is None or new_end is None:
 
                 print(
                     f"No se puede añadir el "
-                    f"subtítulo {index} sin tiempos."
+                    f"subtítulo {base_index} sin tiempos."
                 )
 
                 continue
 
             try:
+
                 start_value = parse_custom_time(
                     new_start
                 )
@@ -641,26 +867,238 @@ def apply_corrections(
                     end_value
                 ),
                 "text": new_text,
+                "_label": str(
+                    base_index
+                ),
             })
 
             changed = True
 
             print(
                 f"Nuevo subtítulo añadido: "
-                f"{index}. "
+                f"{base_index}. "
                 f"{new_start}-{new_end} "
                 f"{new_text}"
             )
 
             continue
 
-        # -------------------------------------------------
-        # NÚMERO INCORRECTO
-        # -------------------------------------------------
-
         print(
             f"No se puede procesar la línea: {line}"
         )
+
+    # ---------------------------------------------------------
+    # PROCESAR INSERCIONES 2.1 / 2.2 / 3.1...
+    # ---------------------------------------------------------
+
+    grouped = {}
+
+    for insertion in insertions:
+
+        base_index = insertion[
+            "base_index"
+        ]
+
+        grouped.setdefault(
+            base_index,
+            [],
+        ).append(
+            insertion
+        )
+
+    for base_index, group in grouped.items():
+
+        if base_index < 1:
+            print(
+                f"Índice base no válido: "
+                f"{base_index}"
+            )
+            continue
+
+        if base_index > len(updated):
+            print(
+                f"No existe el subtítulo "
+                f"{base_index} para insertar "
+                f"una frase después de él."
+            )
+            continue
+
+        # -----------------------------------------------------
+        # ORDENAR 2.1, 2.2, 2.3...
+        # -----------------------------------------------------
+
+        group.sort(
+            key=lambda item: item[
+                "insertion_index"
+            ]
+        )
+
+        previous_segment = updated[
+            base_index - 1
+        ]
+
+        if base_index < len(updated):
+
+            next_segment = updated[
+                base_index
+            ]
+
+        else:
+
+            next_segment = None
+
+        # -----------------------------------------------------
+        # VALIDAR ÍNDICES REPETIDOS
+        # -----------------------------------------------------
+
+        seen_indexes = set()
+
+        for item in group:
+
+            insertion_index = item[
+                "insertion_index"
+            ]
+
+            if insertion_index in seen_indexes:
+
+                print(
+                    f"Índice duplicado: "
+                    f"{base_index}.{insertion_index}"
+                )
+
+                continue
+
+            seen_indexes.add(
+                insertion_index
+            )
+
+        valid_group = [
+            item
+            for item in group
+            if item["insertion_index"]
+            in seen_indexes
+        ]
+
+        total = len(
+            valid_group
+        )
+
+        if total == 0:
+            continue
+
+        # -----------------------------------------------------
+        # CREAR LOS NUEVOS SEGMENTOS
+        # -----------------------------------------------------
+
+        new_segments = []
+
+        for position, item in enumerate(
+            valid_group
+        ):
+
+            manual_start = item[
+                "start"
+            ]
+
+            manual_end = item[
+                "end"
+            ]
+
+            try:
+
+                if (
+                    manual_start is not None
+                    and manual_end is not None
+                ):
+
+                    start_value = parse_custom_time(
+                        manual_start
+                    )
+
+                    end_value = parse_custom_time(
+                        manual_end
+                    )
+
+                else:
+
+                    start_value, end_value = (
+                        calculate_auto_time(
+                            previous_segment,
+                            next_segment,
+                            position,
+                            total,
+                        )
+                    )
+
+            except ValueError as error:
+
+                print(
+                    f"No se puede insertar "
+                    f"{base_index}."
+                    f"{item['insertion_index']}: "
+                    f"{error}"
+                )
+
+                continue
+
+            if end_value <= start_value:
+
+                print(
+                    f"Tiempo inválido para "
+                    f"{base_index}."
+                    f"{item['insertion_index']}"
+                )
+
+                continue
+
+            label = (
+                f"{base_index}."
+                f"{item['insertion_index']}"
+            )
+
+            new_segments.append({
+                "start": format_seconds(
+                    start_value
+                ),
+                "end": format_seconds(
+                    end_value
+                ),
+                "text": item["text"],
+                "_label": label,
+            })
+
+            print(
+                f"Nuevo subtítulo {label}: "
+                f"{format_seconds(start_value)}-"
+                f"{format_seconds(end_value)} "
+                f"{item['text']}"
+            )
+
+        if not new_segments:
+            continue
+
+        # -----------------------------------------------------
+        # INSERTAR JUSTO DESPUÉS DEL SEGMENTO BASE
+        # -----------------------------------------------------
+
+        insertion_position = base_index
+
+        updated[
+            insertion_position:
+            insertion_position
+        ] = new_segments
+
+        changed = True
+
+    # ---------------------------------------------------------
+    # ORDENAR POR TIEMPO
+    # ---------------------------------------------------------
+
+    updated.sort(
+        key=lambda segment: float(
+            segment["start"]
+        )
+    )
 
     return updated, changed
 
@@ -961,8 +1399,11 @@ def run_review(
                     "la corrección.\n\n"
                     "Para corregir:\n"
                     "1. Texto corregido\n\n"
-                    "Para añadir texto nuevo:\n"
-                    "3. [0.00-0.7] Texto nuevo",
+                    "Para añadir entre dos:\n"
+                    "2.1 Texto nuevo\n"
+                    "2.2 Otra frase\n\n"
+                    "Para controlar el tiempo:\n"
+                    "2.1 [0.4-0.5] Texto nuevo",
                 )
 
                 continue
