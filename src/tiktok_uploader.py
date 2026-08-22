@@ -35,29 +35,27 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             
             for cookie in raw_cookies:
                 domain = cookie.get("domain", ".tiktok.com")
-                # Aseguramos formato correcto de banderas booleanas para Netscape
                 flag = "TRUE" if domain.startswith(".") else "FALSE"
                 path = cookie.get("path", "/")
                 secure = "TRUE" if cookie.get("secure", False) else "FALSE"
-                # Expiración por defecto si no viene dada
+                
                 expiration = str(int(cookie.get("expiration", 0)))
                 if expiration == "0":
                     expiration = str(int(cookie.get("expiry", 0)))
                 if expiration == "0":
-                    expiration = str(int(sys.maxsize / 100000000)) # Tiempo lejano futuro
+                    expiration = str(int(sys.maxsize / 100000000))
                     
                 name = cookie.get("name")
                 value = cookie.get("value")
                 
                 if name and value:
-                    # Estructura de pestañas separadas por tabuladores (\t) obligatoria
                     f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n")
                     
         print("💾 Archivo temporal convertido a formato Netscape cookies (.txt) con éxito.")
     except Exception as e:
         raise ValueError(f"Error al convertir cookies al formato Netscape: {e}")
 
-    # 4. Ajuste de rutas e invocación de la librería externa
+    # 4. Ajuste de rutas e ivocación de la librería externa
     try:
         print("🚀 Enviando vídeo troceado hacia la cola de ingesta de TikTok...")
         
@@ -70,11 +68,11 @@ def upload_to_tiktok_automated(video_path, metadata_path):
         
         sys.path = original_path
         
-        # Ejecutamos la subida oficial pasándole la ruta del archivo de texto plano creado
+        # Ejecutamos la subida oficial pasándole las cadenas de texto limpias
         upload_video(
             filename=video_path,
             description=full_caption,
-            cookies=cookies_file_path, # 👈 Ruta del archivo .txt compatible
+            cookies=cookies_file_path,
             headless=True
         )
         
@@ -96,7 +94,6 @@ def upload_to_tiktok_automated(video_path, metadata_path):
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
             
     finally:
-        # Limpieza del archivo creado por seguridad
         if os.path.exists(cookies_file_path):
             os.remove(cookies_file_path)
             print("🧹 Archivo cookies_netscape.txt eliminado con éxito.")
@@ -105,4 +102,9 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Uso: python tiktok_uploader.py <ruta_video> <ruta_metadata>")
         sys.exit(1)
-    upload_to_tiktok_automated(sys.argv, sys.argv)
+        
+    # 🌐 CORRECCIÓN DEFINITIVA DE ARGUMENTOS:
+    video_arg = sys.argv[1]     # Coge 'src/tiktok_test.mp4' (Argumento 1)
+    metadata_arg = sys.argv[2]  # Coge 'metadata.json' (Argumento 2)
+    
+    upload_to_tiktok_automated(video_arg, metadata_arg)
