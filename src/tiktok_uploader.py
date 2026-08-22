@@ -29,28 +29,23 @@ def upload_to_tiktok(video_path, metadata_path):
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
     try:
-        # Carga directa del formato estándar de Cookie-Editor
         raw_cookies = json.loads(cookies_env)
         print("💡 Cookies cargadas correctamente en formato JSON plano nativo.")
         
         # === BLOQUE DE LIMPIEZA DE SAMESITE ===
         cookies = []
         for cookie in raw_cookies:
-            # Aseguramos que el samesite tenga la capitalización y valores válidos para Playwright
             if "sameSite" in cookie:
                 val = str(cookie["sameSite"]).strip().capitalize()
                 if val in ["Strict", "Lax", "None"]:
                     cookie["sameSite"] = val
                 else:
-                    # Si tiene un valor inválido como "no_restriction" o vacío, lo eliminamos
-                    # para que Playwright asigne el valor por defecto del navegador de forma segura
                     del cookie["sameSite"]
             cookies.append(cookie)
         print("🧹 Limpieza de atributos SameSite completada de forma segura.")
         
     except Exception as e:
         print(f"❌ Error al procesar el JSON de las cookies: {e}")
-        print("Asegúrate de haber usado la extensión Cookie-Editor (icono de galleta) y exportado en JSON.")
         cookies = None
 
     # 3. Automatización del navegador con Playwright
@@ -59,72 +54,90 @@ def upload_to_tiktok(video_path, metadata_path):
             print("Iniciando navegador virtual (Chromium Headless)...")
             browser = p.chromium.launch(headless=True)
             
-            # Configuramos un entorno de escritorio normal para evitar que TikTok nos bloquee
             context = browser.new_context(
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             
-            # Inyectamos las cookies para saltarnos el Login oficial de la API
             print("Inyectando cookies de sesión...")
-            try:
-                context.add_cookies(cookies)
-            except Exception as cookie_err:
-                print(f"❌ Error crítico al aplicar las cookies en Playwright: {cookie_err}")
-                print("💡 CONSEJO: Si el error persiste, usa la extensión 'Cookie-Editor' (icono de galleta) y exporta como JSON plano.")
-                raise cookie_err
+            context.add_cookies(cookies)
                 
             page = context.new_page()
 
+            # 🌐 ¡AQUÍ ESTÁ LA CORRECCIÓN CLAVE! Vamos directos a la zona de creadores
             print("Entrando a la página de carga de TikTok Studio...")
             page.goto("https://tiktok.com", wait_until="domcontentloaded")
-            time.sleep(7) # Damos un respiro extra para que cargue la interfaz visual
+            time.sleep(12) # Damos un buen margen para que cargue la interfaz de subida
 
             # Comprobación de seguridad: Ver si nos redirigió al login
             if "login" in page.url:
                 print("❌ ERROR: TikTok nos redirigió a la página de Login. Las cookies han caducado o no son válidas.")
                 raise Exception("Sesión no iniciada. Cookies inválidas.")
 
-            print("Buscando la zona de carga de archivos...")
-            # Forzamos a Playwright a esperar a que el input aparezca en el código de la página (hasta 60 segundos)
-            file_input = page.locator('input[type="file"]')
-            file_input.wait_for(state="attached", timeout=60000)
+            print("Buscando la zona de carga de archivos (intentando múltiples métodos)...")
+            file_input = None
+            
+            # Método 1: Buscar en el documento principal
+            try:
+                file_input = page.locator('input[type="file"]').first
+                file_input.wait_for(state="attached", timeout=10000)
+                print("✅ Zona de carga localizada en el documento principal.")
+            except Exception:
+                print("⚠️ No se encontró el input estándar en la página principal. Probando selectores alternativos...")
+
+            # Método 2: Buscar dentro de posibles iframes
+            if not file_input:
+                try:
+                    for frame in page.frames:
+                        input_in_frame = frame.locator('input[type="file"]').first
+                        if input_in_frame.count() > 0:
+                            file_input = input_in_frame
+                            print(f"✅ Zona de carga localizada dentro de un frame: {frame.name or frame.url}")
+                            break
+                except Exception as frame_err:
+                    print(f"⚠️ Error al escanear los frames de la página: {frame_err}")
+
+            # Método 3: Selector alternativo por atributo
+            if not file_input:
+                try:
+                    file_input = page.locator('input[accept*="video"]').first
+                    file_input.wait_for(state="attached", timeout=10000)
+                    print("✅ Zona de carga localizada mediante el selector de tipo de archivo ('accept').")
+                except Exception:
+                    print("❌ Error crítico: Ha sido imposible encontrar la zona de carga.")
+                    print("📸 Guardando captura de pantalla de depuración en 'debug_tiktok.png'...")
+                    page.screenshot(path="debug_tiktok.png")
+                    raise Exception("No se pudo interactuar con la zona de subida de TikTok Studio.")
 
             print(f"Subiendo archivo de vídeo: {video_path}")
             file_input.set_input_files(video_path)
             
             print("Esperando a que el vídeo termine de procesarse en los servidores de TikTok...")
-            # Aumentamos el tiempo de procesamiento a 2 minutos por si el servidor de GitHub va lento
             page.wait_for_selector("text=Eliminar", timeout=120000) 
 
             print("Escribiendo el título y los hashtags de la IA...")
-            # El cuadro de texto de TikTok Studio es un contenedor editable (DraftEditor)
             editor = page.locator('.public-DraftEditor-content')
             editor.click()
-            # Limpiamos lo que haya por defecto y escribimos el contenido
             page.keyboard.press("Control+A")
             page.keyboard.press("Backspace")
             page.keyboard.type(full_caption)
             time.sleep(2)
 
             print("Guardando el vídeo en la sección de borradores...")
-            # Buscamos el botón gris que pone "Guardar borrador"
             draft_button = page.locator('button:has-text("Guardar borrador")')
             
             if draft_button.is_visible():
                 draft_button.click()
             else:
-                # Si la interfaz web cambia ligeramente, el botón "Publicar" sirve ya que el estado por defecto es privado
                 print("Botón específico de borrador no visto, intentando con botón alternativo...")
                 page.locator('button:has-text("Publicar")').click()
 
-            # Esperamos la confirmación visual de la página web
             page.wait_for_selector("text=Cargado correctamente", timeout=30000)
             print("🚀 ¡ÉXITO! El vídeo se ha guardado en tus borradores de TikTok de forma pública.")
             
             browser.close()
 
-            # Guardamos el archivo de reporte final que tu workflow lee para pintar el JSON en consola
+            # Guardamos el archivo de reporte final para el flujo de GitHub
             success_result = {
                 "status": "SUCCESS",
                 "publish_id": "PLAYWRIGHT_AUTOMATION_DRAFT",
@@ -141,13 +154,11 @@ def upload_to_tiktok(video_path, metadata_path):
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
-    # Capturamos de forma estricta los argumentos enviados desde GitHub Actions
     if len(sys.argv) < 3:
         print("Uso: python tiktok_uploader.py <ruta_video> <ruta_metadata>")
         sys.exit(1)
         
-    video_arg = sys.argv[1]     # 👈 Coge 'src/tiktok_test.mp4' (Argumento 1)
-    metadata_arg = sys.argv[2]  # 👈 Coge 'metadata.json' (Argumento 2)
+    video_arg = sys.argv[1]
+    metadata_arg = sys.argv[2]
     
     upload_to_tiktok(video_arg, metadata_arg)
-
