@@ -15,10 +15,7 @@ TIMESTAMP_TOLERANCE = 0.05
 # mucho más larga que las originales.
 #
 # Este límite se aplica DESPUÉS de Gemini.
-#
-# 4 palabras permite mantener subtítulos cortos y fáciles
-# de leer sin fragmentarlos demasiado.
-MAX_WORDS_PER_SUBTITLE = 4
+MAX_WORDS_PER_SUBTITLE = 3
 
 
 # ============================================================
@@ -492,7 +489,6 @@ def split_long_subtitles(
 
         words = text.split()
 
-        # Ya cumple el límite.
         if len(words) <= max_words:
             result.append(segment)
             continue
@@ -680,11 +676,69 @@ def write_final_subtitles(
 
 def main() -> None:
 
-    if len(sys.argv) != 4:
+    # --------------------------------------------------------
+    # Aceptamos dos formas:
+    #
+    # 1. Sin argumentos:
+    #    python src/ai_response_validator.py
+    #
+    #    Utiliza los nombres estándar del workflow.
+    #
+    # 2. Con argumentos:
+    #    python src/ai_response_validator.py \
+    #        ai_response.json \
+    #        corrected_subtitles.json \
+    #        final_subtitles.txt
+    # --------------------------------------------------------
+
+    if len(sys.argv) == 1:
+
+        ai_response_path = "ai_response.json"
+        original_path = "corrected_subtitles.json"
+        output_path = "final_subtitles.txt"
 
         print(
-            "Uso: python "
-            "src/ai_response_validator.py "
+            "No se han proporcionado argumentos."
+        )
+
+        print(
+            "Usando archivos estándar:"
+        )
+
+        print(
+            f"  AI: {ai_response_path}"
+        )
+
+        print(
+            f"  Original: {original_path}"
+        )
+
+        print(
+            f"  Salida: {output_path}"
+        )
+
+    elif len(sys.argv) == 4:
+
+        ai_response_path = sys.argv[1]
+        original_path = sys.argv[2]
+        output_path = sys.argv[3]
+
+    else:
+
+        print(
+            "Uso:"
+        )
+
+        print(
+            "python src/ai_response_validator.py"
+        )
+
+        print(
+            "o:"
+        )
+
+        print(
+            "python src/ai_response_validator.py "
             "<ai_response.json> "
             "<corrected_subtitles.json> "
             "<final_subtitles.txt>"
@@ -692,18 +746,16 @@ def main() -> None:
 
         sys.exit(1)
 
-    ai_response_path = sys.argv[1]
-    original_path = sys.argv[2]
-    output_path = sys.argv[3]
-
     try:
 
         print(
             "========================================"
         )
+
         print(
             "PROCESANDO RESPUESTA DE GEMINI"
         )
+
         print(
             "========================================"
         )
@@ -751,9 +803,12 @@ def main() -> None:
         # ----------------------------------------------------
         # 2. DIVIDIR FRASES LARGAS
         #
-        # Se hace DESPUÉS de Gemini para evitar que una
-        # respuesta larga de Gemini vuelva a generar
-        # subtítulos demasiado extensos.
+        # IMPORTANTE:
+        # Se hace DESPUÉS de Gemini.
+        #
+        # Así Gemini puede corregir/reagrupar el texto,
+        # pero nunca puede dejar una frase demasiado larga
+        # para el subtítulo final.
         # ----------------------------------------------------
 
         final_segments = split_long_subtitles(
@@ -776,6 +831,12 @@ def main() -> None:
             )
         )
 
+        print(
+            f"Segmentos finales después "
+            f"de eliminar duplicados: "
+            f"{len(final_segments)}"
+        )
+
         # ----------------------------------------------------
         # 4. Guardar
         # ----------------------------------------------------
@@ -786,12 +847,15 @@ def main() -> None:
         )
 
         print("")
+
         print(
             "========================================"
         )
+
         print(
             "SUBTÍTULOS FINALES CREADOS"
         )
+
         print(
             "========================================"
         )
