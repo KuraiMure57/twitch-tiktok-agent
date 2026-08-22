@@ -16,17 +16,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias de Python
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install playwright
+          pip install requests
 
-      # === PASO NUEVO: Instalar el navegador invisible en el servidor ===
-      - name: Instalar navegador de Playwright
-        run: |
-          playwright install chromium --with-deps
-
-      # Creas tus metadatos de prueba igual que antes
+      # Creamos tus metadatos de prueba igual que antes
       - name: Crear metadata de prueba
         run: |
           cat > metadata.json <<'EOF'
@@ -40,28 +35,16 @@ jobs:
           }
           EOF
 
-      # Ejecutamos el script simulando un monitor virtual con xvfb-run
+      # === PASO MODIFICADO: Inyectamos el SESSION_ID ===
       - name: Publicar vídeo de prueba en TikTok
         env:
-          TIKTOK_COOKIES: ${{ secrets.TIKTOK_COOKIES }}
+          TIKTOK_SESSION_ID: ${{ secrets.TIKTOK_SESSION_ID }}
         run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
-          xvfb-run --server-args="-screen 0 1366x768x24" python src/tiktok_uploader.py \
+          python src/tiktok_uploader.py \
             src/tiktok_test.mp4 \
             metadata.json
 
-      # Forzamos a que guarde la imagen siempre, pase lo que pase
-      - name: Descargar captura de pantalla de depuración
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tiktok-debug-image
-          path: debug_tiktok.png
-
-          uses: actions/upload-artifact@v4
-          with:
-
-      # Este paso lo dejamos para que compruebe si tu script generó el reporte final
+      # Este paso lee el archivo final para mostrar el resumen en consola
       - name: Mostrar resultado de publicación
         if: always()
         run: |
