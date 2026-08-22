@@ -77,22 +77,25 @@ def upload_to_tiktok(video_path, metadata_path):
             page = context.new_page()
 
             print("Entrando a la página de carga de TikTok Studio...")
-            page.goto("https://tiktok.com", wait_until="networkidle")
-            time.sleep(5) # Espera prudencial para que renderice todo
+            page.goto("https://tiktok.com", wait_until="domcontentloaded")
+            time.sleep(7) # Damos un respiro extra para que cargue la interfaz visual
 
-            # Comprobación de seguridad: Ver si nos redirigió al login (cookies inválidas/caducadas)
+            # Comprobación de seguridad: Ver si nos redirigió al login
             if "login" in page.url:
                 print("❌ ERROR: TikTok nos redirigió a la página de Login. Las cookies han caducado o no son válidas.")
                 raise Exception("Sesión no iniciada. Cookies inválidas.")
 
-            print(f"Subiendo archivo de vídeo: {video_path}")
-            # Localizamos el selector de archivos oculto de la web
+            print("Buscando la zona de carga de archivos...")
+            # Forzamos a Playwright a esperar a que el input aparezca en el código de la página (hasta 60 segundos)
             file_input = page.locator('input[type="file"]')
+            file_input.wait_for(state="attached", timeout=60000)
+
+            print(f"Subiendo archivo de vídeo: {video_path}")
             file_input.set_input_files(video_path)
             
             print("Esperando a que el vídeo termine de procesarse en los servidores de TikTok...")
-            # Esperamos a que aparezca el botón "Eliminar", señal de que el vídeo ya se cargó en la interfaz
-            page.wait_for_selector("text=Eliminar", timeout=90000) 
+            # Aumentamos el tiempo de procesamiento a 2 minutos por si el servidor de GitHub va lento
+            page.wait_for_selector("text=Eliminar", timeout=120000) 
 
             print("Escribiendo el título y los hashtags de la IA...")
             # El cuadro de texto de TikTok Studio es un contenedor editable (DraftEditor)
