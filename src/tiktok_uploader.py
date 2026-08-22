@@ -29,27 +29,28 @@ def upload_to_tiktok(video_path, metadata_path):
         raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
     try:
-        parsed_cookies = json.loads(cookies_env)
+        # Carga directa del formato estándar de Cookie-Editor
+        raw_cookies = json.loads(cookies_env)
+        print("💡 Cookies cargadas correctamente en formato JSON plano nativo.")
         
-        # Si viene de Cookie Manager (tu extensión), los datos reales están dentro de "data"
-        # pero vienen codificados. Si da problemas, se recomienda usar la extensión "Cookie-Editor"
-        if isinstance(parsed_cookies, dict) and "data" in parsed_cookies:
-            print("Detectado formato de Cookie Manager. Extrayendo datos...")
-            # Intentamos cargar el contenido de data si es un JSON válido plano
-            try:
-                cookies = json.loads(parsed_cookies["data"])
-            except:
-                # Si el string de "data" está encriptado por la extensión, Playwright no podrá leerlo.
-                # En ese caso, avisamos al usuario para usar Cookie-Editor (formato nativo plano).
-                print("⚠️ ADVERTENCIA: Los datos parecen estar encriptados por la extensión.")
-                cookies = parsed_cookies["data"]
-        else:
-            # Formato nativo plano directo (Cookie-Editor)
-            print("Detectado formato nativo JSON plano.")
-            cookies = parsed_cookies
-
+        # === BLOQUE DE LIMPIEZA DE SAMESITE ===
+        cookies = []
+        for cookie in raw_cookies:
+            # Aseguramos que el samesite tenga la capitalización y valores válidos para Playwright
+            if "sameSite" in cookie:
+                val = str(cookie["sameSite"]).strip().capitalize()
+                if val in ["Strict", "Lax", "None"]:
+                    cookie["sameSite"] = val
+                else:
+                    # Si tiene un valor inválido como "no_restriction" o vacío, lo eliminamos
+                    # para que Playwright asigne el valor por defecto del navegador de forma segura
+                    del cookie["sameSite"]
+            cookies.append(cookie)
+        print("🧹 Limpieza de atributos SameSite completada de forma segura.")
+        
     except Exception as e:
-        print(f"Error al procesar el formato del JSON de cookies: {e}")
+        print(f"❌ Error al procesar el JSON de las cookies: {e}")
+        print("Asegúrate de haber usado la extensión Cookie-Editor (icono de galleta) y exportado en JSON.")
         cookies = None
 
     # 3. Automatización del navegador con Playwright
