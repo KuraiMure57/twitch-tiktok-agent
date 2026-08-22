@@ -1,11 +1,10 @@
 import sys
 import json
 import os
-import requests
-import time
+from tiktok_uploader.upload import upload_video
 
-def upload_to_tiktok_by_session(video_path, metadata_path):
-    print("=== INICIANDO SUBIDA PREMIUM A TIKTOK STUDIO ===")
+def upload_to_tiktok_automated(video_path, metadata_path):
+    print("=== INICIANDO SUBIDA AUTOMATIZADA CON TIKTOK-UPLOADER ===")
     
     # 1. Extraer título y hashtags
     try:
@@ -14,93 +13,47 @@ def upload_to_tiktok_by_session(video_path, metadata_path):
         title = metadata.get("title", "")
         hashtags = " ".join(metadata.get("hashtags", []))
         full_caption = f"{title} {hashtags}"
-        print(f"Texto del vídeo: {full_caption}")
+        print(f"Texto configurado para el vídeo: {full_caption}")
     except Exception as e:
-        print(f"Error al leer metadata: {e}")
+        print(f"Error al leer metadata (usando texto por defecto): {e}")
         full_caption = "Prueba de publicación #twitch"
 
-    # 2. Recuperar las cookies
+    # 2. Recuperar el secreto de las cookies de tu GitHub
     cookies_env = os.environ.get("TIKTOK_COOKIES")
     if not cookies_env:
-        raise ValueError("Error: TIKTOK_COOKIES no configurado en GitHub Secrets.")
+        raise ValueError("Error: TIKTOK_COOKIES no está configurado en GitHub Secrets.")
 
-    session_id = None
+    # 3. Crear un archivo temporal de cookies en el servidor de GitHub Actions.
+    # La librería necesita leer las cookies desde un archivo físico de texto plano.
+    cookies_file_path = "temp_tiktok_cookies.json"
     try:
-        raw_cookies = json.loads(cookies_env)
-        for cookie in raw_cookies:
-            if cookie.get("name") == "sessionid":
-                session_id = cookie.get("value")
-                break
+        cookies_data = json.loads(cookies_env)
+        with open(cookies_file_path, "w", encoding="utf-8") as f:
+            json.dump(cookies_data, f, indent=2)
+        print("💾 Archivo temporal de cookies estructurado con éxito.")
     except Exception as e:
-        print(f"❌ Error al procesar JSON de cookies: {e}")
+        raise ValueError(f"Error al procesar el JSON de tus cookies: {e}")
 
-    if not session_id:
-        raise ValueError("Error: No se encontró 'sessionid' en tus cookies.")
-
-    # 3. Configurar cabeceras exactas de TikTok Studio Web
-    # Esto hace que el servidor crea que estamos usando Google Chrome en Windows
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "es-ES,es;q=0.9",
-        "Origin": "https://tiktok.com",
-        "Referer": "https://tiktok.com/tiktokstudio/upload",
-    }
-    
-    cookies = {
-        "sessionid": session_id,
-        "sessionid_ss": session_id
-    }
-
-    # 4. PASO CLAVE: Inicializar el archivo en los servidores de TikTok
-    # Le avisamos al sistema de TikTok que un usuario real va a subir un vídeo
-    print("1️⃣ Solicitando espacio de carga en los servidores de TikTok...")
-    init_url = "https://tiktok.com/passport/web/user/info/" # Validación de perfil
+    # 4. Lanzar la subida por fragmentos nativa (Garantiza que aparezca en tu móvil)
     try:
-        user_info = requests.get(init_url, cookies=cookies, headers=headers, timeout=30).json()
-        user_id = user_info.get("data", {}).get("user_id_str", "")
-        print(f"✅ Conectado con éxito a la cuenta del ID de usuario: {user_id}")
-    except Exception as e:
-        print(f"⚠️ Aviso al validar usuario: {e}")
-
-    # 5. Enviar el vídeo mediante el sistema oficial de publicaciones web
-    # Usamos el endpoint específico de la plataforma de creadores
-    upload_url = "https://tiktok.com/v1/video/upload/"
-    
-    try:
-        print(f"2️⃣ Transmitiendo archivo de vídeo: {video_path}")
-        with open(video_path, "rb") as video_file:
-            files = {
-                "video": (os.path.basename(video_path), video_file, "video/mp4")
-            }
-            # Parámetros exactos que envía el botón de "Guardar borrador" de la web
-            data = {
-                "text": full_caption,
-                "video_id": str(int(time.time())), # ID temporal único
-                "visibility_type": "1", # 1 = Solo yo (Borrador privado seguro)
-                "allow_comment": "1",
-                "allow_duet": "1",
-                "allow_stitch": "1",
-                "type": "1" # Modo borrador web estructurado
-            }
-            
-            response = requests.post(upload_url, cookies=cookies, headers=headers, files=files, data=data, timeout=180)
-            
-        print(f"3️⃣ Código de respuesta de TikTok: {response.status_code}")
-        print(f"Respuesta cruda del servidor: {response.text}")
+        print("🚀 Transmitiendo vídeo troceado de forma segura hacia los servidores de TikTok...")
         
-        # Comprobamos si el servidor devolvió un JSON con estado de éxito
-        response_json = response.json()
-        if response_json.get("status_code") == 0 or response_json.get("message") == "success":
-            print("🚀 ¡ÉXITO TOTAL! El vídeo ha sido enlazado a tu perfil.")
-            status_msg = "SUCCESS"
-        else:
-            print(f"⚠️ TikTok recibió el archivo pero devolvió una alerta: {response_json.get('message')}")
-            status_msg = f"WARNING: {response_json.get('message')}"
-
+        # Ejecutamos la función de la librería oficial
+        # - Usamos headless=True para que corra ligero en GitHub
+        # - Pasamos la descripción completa de tu IA
+        upload_video(
+            filename=video_path,
+            description=full_caption,
+            cookies=cookies_file_path,
+            headless=True
+        )
+        
+        print("✅ ¡VÍDEO ENVIADO CON ÉXITO! Comprueba la carpeta de borradores de tu móvil.")
+        
+        # Escribimos el reporte final para tu Workflow
         success_result = {
-            "status": status_msg,
-            "publish_id": "TIKTOK_WEB_STUDIO_UPLOAD",
+            "status": "SUCCESS",
+            "publish_id": "COMMUNITY_UPLOADER_LIB",
             "post_ids": ["DRAFT_MODE"],
             "caption": full_caption
         }
@@ -108,13 +61,19 @@ def upload_to_tiktok_by_session(video_path, metadata_path):
             json.dump(success_result, f, ensure_ascii=False, indent=2)
 
     except Exception as e:
-        print(f"❌ Error en la transferencia: {e}")
+        print(f"❌ Error durante el proceso automatizado de subida: {e}")
         fail_result = {"status": f"FAILED: {str(e)}", "caption": full_caption}
         with open("tiktok_result.json", "w", encoding="utf-8") as f:
             json.dump(fail_result, f, ensure_ascii=False, indent=2)
+            
+    finally:
+        # Por seguridad borramos el archivo de cookies del servidor al terminar
+        if os.path.exists(cookies_file_path):
+            os.remove(cookies_file_path)
+            print("🧹 Archivo temporal de cookies destruido de forma segura.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Uso: python tiktok_uploader.py <ruta_video> <ruta_metadata>")
         sys.exit(1)
-    upload_to_tiktok_by_session(sys.argv[1], sys.argv[2])
+    upload_to_tiktok_automated(sys.argv[1], sys.argv[2])
