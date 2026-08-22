@@ -7,19 +7,30 @@ Agente automático para transformar clips de Twitch en contenido para TikTok.
 Flujo previsto:
 
 Twitch
-→ detectar nuevo clip
-→ obtener vídeo
-→ analizar contenido
-→ decidir si merece la pena
-→ editar vídeo
-→ formato 9:16
-→ subtítulos
-→ generar título
-→ generar descripción
-→ generar hashtags
-→ revisión del usuario
-→ aprobación
-→ subirlo al borrador de TikTok
+ ↓
+Procesamiento
+ ↓
+Vídeo final + subtítulos
+ ↓
+Telegram
+ ↓
+👀 Revisas
+ ↓
+✏️ Si hace falta, corriges
+ ↓
+Telegram te manda el vídeo corregido
+ ↓
+✅ AUTORIZAR
+ ↓
+Telegram te manda:
+   📋 Título
+   📝 Descripción
+   #️⃣ Hashtags
+   📋 Texto completo para copiar
+ ↓
+TÚ DESCARGAS EL VÍDEO DEL MENSAJE DE TELEGRAM
+ ↓
+TikTok
 
 ## Principios
 
