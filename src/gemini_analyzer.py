@@ -227,7 +227,7 @@ La estructura OBLIGATORIA es:
     {{
       "start": 1.56,
       "end": 2.08,
-      "text": "texto"
+      "text": "texto",
       "speaker": "kuraimure"
     }}
   ]
