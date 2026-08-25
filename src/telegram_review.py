@@ -14,9 +14,90 @@ POLL_TIMEOUT_SECONDS = 20
 
 DEFAULT_SPEAKER = "kuraimure"
 
+# ============================================================
+# ATAJOS DE SPEAKER
+# ============================================================
+#
+# @1 = Kurai / kuraimure
+# @2 = speaker_2
+# @3 = speaker_3
+# @4 = speaker_4
+# @5 = speaker_5
+# @6 = speaker_6
+#
+# También se siguen aceptando:
+# @kuraimure
+# @speaker_2
+# @speaker_3
+# etc.
+# ============================================================
+
+SPEAKER_ALIASES = {
+    "1": "kuraimure",
+    "2": "speaker_2",
+    "3": "speaker_3",
+    "4": "speaker_4",
+    "5": "speaker_5",
+    "6": "speaker_6",
+}
+
 
 class TelegramError(RuntimeError):
     pass
+
+
+def normalize_speaker(speaker):
+    """
+    Convierte los atajos:
+
+        @1 -> kuraimure
+        @2 -> speaker_2
+        @3 -> speaker_3
+        ...
+
+    También acepta directamente:
+
+        kuraimure
+        speaker_2
+        speaker_3
+        ...
+
+    El @ se elimina si viene incluido.
+    """
+
+    if not speaker:
+        return DEFAULT_SPEAKER
+
+    speaker = str(speaker).strip()
+
+    if speaker.startswith("@"):
+        speaker = speaker[1:]
+
+    if speaker in SPEAKER_ALIASES:
+        return SPEAKER_ALIASES[speaker]
+
+    return speaker
+
+
+def speaker_display_name(speaker):
+    """
+    Devuelve un nombre amigable para mostrar en Telegram.
+    """
+
+    speaker = normalize_speaker(speaker)
+
+    if speaker == "kuraimure":
+        return "Kurai (kuraimure) → negro"
+
+    if speaker.startswith("speaker_"):
+        number = speaker.replace(
+            "speaker_",
+            "",
+        )
+
+        return f"Speaker {number}"
+
+    return speaker
 
 
 def api_call(token, method, data=None, files=None):
@@ -257,9 +338,16 @@ def read_subtitles(path):
 
         start|end|speaker|text
 
-    Formato antiguo:
+    Ejemplo:
+
+        0.000|2.500|kuraimure|Hola chicos
+
+    También acepta el formato antiguo:
 
         start|end|text
+
+    En ese caso se asigna automáticamente
+    'kuraimure' como speaker.
     """
 
     if not path.exists():
@@ -286,10 +374,9 @@ def read_subtitles(path):
 
                 start, end, speaker, text = parts
 
-                speaker = speaker.strip()
-
-                if not speaker:
-                    speaker = DEFAULT_SPEAKER
+                speaker = normalize_speaker(
+                    speaker
+                )
 
             elif len(parts) == 3:
 
@@ -318,7 +405,7 @@ def write_subtitles(
     segments,
 ):
     """
-    Guarda:
+    Guarda los subtítulos utilizando:
 
         start|end|speaker|text
     """
@@ -330,13 +417,12 @@ def write_subtitles(
 
         for segment in segments:
 
-            speaker = segment.get(
-                "speaker",
-                DEFAULT_SPEAKER,
+            speaker = normalize_speaker(
+                segment.get(
+                    "speaker",
+                    DEFAULT_SPEAKER,
+                )
             )
-
-            if not speaker:
-                speaker = DEFAULT_SPEAKER
 
             file.write(
                 f"{segment['start']}|"
@@ -359,6 +445,17 @@ def get_segment_label(
 def format_subtitles_for_telegram(
     segments,
 ):
+    """
+    Prepara la lista de subtítulos que se envía
+    al usuario por Telegram.
+
+    Incluye la leyenda de speakers:
+    
+        @1 = Kurai
+        @2 = speaker_2
+        etc.
+    """
+
     lines = [
         "📝 SUBTÍTULOS ACTUALES",
         "",
@@ -376,13 +473,12 @@ def format_subtitles_for_telegram(
         if not text:
             text = "[sin texto]"
 
-        speaker = segment.get(
-            "speaker",
-            DEFAULT_SPEAKER,
+        speaker = normalize_speaker(
+            segment.get(
+                "speaker",
+                DEFAULT_SPEAKER,
+            )
         )
-
-        if not speaker:
-            speaker = DEFAULT_SPEAKER
 
         label = get_segment_label(
             segment,
@@ -402,12 +498,12 @@ def format_subtitles_for_telegram(
         "",
         "🎨 PARA CAMBIAR SOLO EL COLOR/HABLANTE:",
         "",
-        "3. @speaker_3",
-        "➡️ Cambia solo el color.",
+        "3. @1",
+        "➡️ Cambia solo el color/hablante.",
         "",
         "✏️🎨 PARA CAMBIAR TEXTO + COLOR:",
         "",
-        "3. @speaker_3 Texto corregido",
+        "3. @1 Texto corregido",
         "",
         "➕ PARA AÑADIR UNA FRASE ENTRE DOS:",
         "",
@@ -437,6 +533,15 @@ def format_subtitles_for_telegram(
         "",
         "🎨 SPEAKERS:",
         "",
+        "@1 → Kurai (kuraimure) → negro",
+        "@2 → Speaker 2",
+        "@3 → Speaker 3",
+        "@4 → Speaker 4",
+        "@5 → Speaker 5",
+        "@6 → Speaker 6",
+        "",
+        "También puedes usar los nombres completos:",
+        "@kuraimure",
         "@speaker_2",
         "@speaker_3",
         "@speaker_4",
@@ -448,6 +553,22 @@ def format_subtitles_for_telegram(
 
 
 def parse_custom_time(value):
+    """
+    Formato:
+
+    minutos.segundos
+
+    Ejemplos:
+
+    0.7  = 00:07
+    0.12 = 00:12
+    1.2  = 01:02
+    1.15 = 01:15
+    7    = 07:00
+    7.5  = 07:05
+    7.50 = 07:50
+    """
+
     value = value.strip()
 
     if not value:
@@ -508,17 +629,43 @@ def format_seconds(seconds):
 
 def parse_correction_line(line):
     """
-    Formatos:
+    Formatos aceptados:
+
+    Solo texto:
 
         3. Texto corregido
-        3. @speaker_3
-        3. @speaker_3 Texto corregido
+
+    Solo speaker/color:
+
+        3. @1
+
+    Texto + speaker/color:
+
+        3. @1 Texto corregido
+
+    Texto con tiempo:
+
+        3. [0.4-0.5] Texto corregido
+
+    Texto + speaker + tiempo:
+
+        3. [0.4-0.5] @1 Texto corregido
+
+    Nueva frase:
 
         2.1 Texto nuevo
-        2.1 @speaker_3 Texto nuevo
+
+    Nueva frase + speaker:
+
+        2.1 @1 Texto nuevo
+
+    Nueva frase con tiempo:
 
         2.1 [0.4-0.5] Texto nuevo
-        2.1 [0.4-0.5] @speaker_3 Texto nuevo
+
+    Nueva frase con tiempo + speaker:
+
+        2.1 [0.4-0.5] @1 Texto nuevo
     """
 
     line = line.strip()
@@ -549,6 +696,10 @@ def parse_correction_line(line):
     start = None
     end = None
 
+    # ========================================================
+    # TIEMPOS OPCIONALES
+    # ========================================================
+
     time_match = re.match(
         r"^\["
         r"\s*([0-9]+(?:\.[0-9]+)?)"
@@ -562,21 +713,43 @@ def parse_correction_line(line):
     if time_match:
 
         start = time_match.group(1)
+
         end = time_match.group(2)
 
         content = time_match.group(3).strip()
 
+    # ========================================================
+    # SPEAKER OPCIONAL
+    #
+    # Acepta:
+    #
+    # @1
+    # @2
+    # @3
+    # ...
+    #
+    # Y también:
+    #
+    # @kuraimure
+    # @speaker_2
+    # ...
+    # ========================================================
+
     speaker = None
 
     speaker_match = re.match(
-        r"^(@speaker_[A-Za-z0-9_-]+)"
+        r"^(@[A-Za-z0-9_-]+)"
         r"(?:\s+(.*))?$",
         content,
     )
 
     if speaker_match:
 
-        speaker = speaker_match.group(1)[1:].strip()
+        raw_speaker = speaker_match.group(1)
+
+        speaker = normalize_speaker(
+            raw_speaker
+        )
 
         content = (
             speaker_match.group(2) or ""
@@ -601,62 +774,43 @@ def get_numeric_time(segment, key):
     )
 
 
-def calculate_insertion_times(
+def calculate_auto_time(
     previous_segment,
     next_segment,
-    count,
+    position,
+    total,
 ):
     """
-    Calcula los tiempos de las inserciones.
-
-    MUY IMPORTANTE:
-
-    Si tenemos:
-
-        32
-        32.1
-        32.2
-        33
-
-    las inserciones SIEMPRE quedan DESPUÉS
-    de 32 y ANTES de 33.
-
-    El espacio disponible es:
-
-        final de 32
-        ->
-        inicio de 33
-
+    Reparte automáticamente el espacio disponible
+    entre el subtítulo anterior y el siguiente.
     """
 
-    previous_end = get_numeric_time(
-        previous_segment,
-        "end",
+    previous_end = (
+        get_numeric_time(
+            previous_segment,
+            "end",
+        )
     )
 
-    if next_segment is not None:
-
-        next_start = get_numeric_time(
+    next_start = (
+        get_numeric_time(
             next_segment,
             "start",
         )
-
-    else:
-
-        next_start = (
-            previous_end + 3.0
-        )
+        if next_segment is not None
+        else previous_end + 3.0
+    )
 
     available = (
-        next_start - previous_end
+        next_start
+        - previous_end
     )
 
     if available <= 0.05:
-
         raise ValueError(
-            "No hay espacio suficiente "
-            "para insertar la nueva frase "
-            "después del segmento base."
+            "No hay espacio suficiente entre "
+            "los subtítulos para insertar "
+            "la nueva frase automáticamente."
         )
 
     margin = min(
@@ -670,40 +824,31 @@ def calculate_insertion_times(
     )
 
     if usable <= 0.05:
-
         raise ValueError(
-            "El espacio disponible es "
-            "demasiado pequeño."
+            "El espacio disponible es demasiado "
+            "pequeño para insertar el subtítulo."
         )
 
     duration = (
-        usable / count
+        usable / total
     )
 
-    result = []
+    start = (
+        previous_end
+        + margin
+        + (position * duration)
+    )
 
-    for position in range(count):
+    end = (
+        previous_end
+        + margin
+        + ((position + 1) * duration)
+    )
 
-        start = (
-            previous_end
-            + margin
-            + position * duration
-        )
-
-        end = (
-            previous_end
-            + margin
-            + (position + 1) * duration
-        )
-
-        result.append(
-            (
-                start,
-                end,
-            )
-        )
-
-    return result
+    return (
+        start,
+        end,
+    )
 
 
 def apply_corrections(
@@ -711,26 +856,28 @@ def apply_corrections(
     correction_text,
 ):
     """
-    Aplica correcciones.
+    Aplica correcciones y permite cambiar:
 
-    IMPORTANTE:
+        3. Texto corregido
 
-    Las inserciones 2.1, 2.2, 2.3...
+    solo texto.
 
-    se consideran HIJAS del segmento 2.
+        3. @1
 
-    Por tanto:
+    solo speaker/color.
 
-        2
-        2.1
-        2.2
-        3
+        3. @1 Texto corregido
 
-    y nunca:
+    texto + speaker/color.
 
-        2.1
-        2
-        3
+    También mantiene el sistema de inserciones:
+
+        2.1 Texto
+        2.2 Texto
+
+    y tiempos manuales:
+
+        2.1 [0.4-0.5] Texto
     """
 
     lines = [
@@ -747,19 +894,26 @@ def apply_corrections(
         for segment in segments
     ]
 
+    # ========================================================
+    # ASEGURAR SPEAKER
+    # ========================================================
+
     for segment in updated:
 
-        speaker = segment.get(
-            "speaker",
-            DEFAULT_SPEAKER,
+        speaker = normalize_speaker(
+            segment.get(
+                "speaker",
+                DEFAULT_SPEAKER,
+            )
         )
-
-        if not speaker:
-            speaker = DEFAULT_SPEAKER
 
         segment["speaker"] = speaker
 
     changed = False
+
+    # ========================================================
+    # ASEGURAR ETIQUETAS BASE
+    # ========================================================
 
     for index, segment in enumerate(
         updated,
@@ -770,11 +924,11 @@ def apply_corrections(
             str(index),
         )
 
-    insertions = []
-
-    # =========================================================
+    # ========================================================
     # CORRECCIONES NORMALES
-    # =========================================================
+    # ========================================================
+
+    insertions = []
 
     for line in lines:
 
@@ -809,42 +963,46 @@ def apply_corrections(
             "text"
         ]
 
-        # =====================================================
-        # INSERCIÓN
-        # =====================================================
+        # ====================================================
+        # INSERCIÓN JERÁRQUICA
+        # ====================================================
 
         if insertion_index is not None:
 
             if not new_text:
-
                 print(
                     f"No se puede insertar "
                     f"{base_index}.{insertion_index} "
                     f"sin texto."
                 )
-
                 continue
 
-            insertions.append({
-                "base_index": base_index,
-                "insertion_index": insertion_index,
-                "start": new_start,
-                "end": new_end,
-                "speaker": new_speaker,
-                "text": new_text,
-            })
+            insertions.append(
+                {
+                    "base_index": base_index,
+                    "insertion_index": insertion_index,
+                    "start": new_start,
+                    "end": new_end,
+                    "speaker": new_speaker,
+                    "text": new_text,
+                }
+            )
 
             continue
 
-        # =====================================================
-        # MODIFICAR EXISTENTE
-        # =====================================================
+        # ====================================================
+        # MODIFICAR SUBTÍTULO EXISTENTE
+        # ====================================================
 
         if base_index <= len(updated):
 
             segment = updated[
                 base_index - 1
             ]
+
+            # =================================================
+            # CAMBIO DE TIEMPO
+            # =================================================
 
             if new_start is not None:
 
@@ -886,17 +1044,27 @@ def apply_corrections(
 
                 changed = True
 
+            # =================================================
+            # CAMBIO DE SPEAKER
+            # =================================================
+
             if new_speaker is not None:
 
-                segment["speaker"] = new_speaker
+                segment["speaker"] = normalize_speaker(
+                    new_speaker
+                )
 
                 changed = True
 
                 print(
                     f"Speaker del subtítulo "
                     f"{base_index} cambiado a: "
-                    f"{new_speaker}"
+                    f"{segment['speaker']}"
                 )
+
+            # =================================================
+            # CAMBIO DE TEXTO
+            # =================================================
 
             if new_text:
 
@@ -912,9 +1080,9 @@ def apply_corrections(
 
             continue
 
-        # =====================================================
-        # COMPATIBILIDAD CON AÑADIR AL FINAL
-        # =====================================================
+        # ====================================================
+        # COMPATIBILIDAD CON SISTEMA ANTERIOR
+        # ====================================================
 
         if base_index == len(updated) + 1:
 
@@ -922,8 +1090,7 @@ def apply_corrections(
 
                 print(
                     f"No se puede añadir el "
-                    f"subtítulo {base_index} "
-                    f"sin tiempos."
+                    f"subtítulo {base_index} sin tiempos."
                 )
 
                 continue
@@ -932,8 +1099,7 @@ def apply_corrections(
 
                 print(
                     f"No se puede añadir el "
-                    f"subtítulo {base_index} "
-                    f"sin texto."
+                    f"subtítulo {base_index} sin texto."
                 )
 
                 continue
@@ -968,13 +1134,17 @@ def apply_corrections(
 
             if new_speaker:
 
-                speaker = new_speaker
+                speaker = normalize_speaker(
+                    new_speaker
+                )
 
             elif updated:
 
-                speaker = updated[-1].get(
-                    "speaker",
-                    DEFAULT_SPEAKER,
+                speaker = normalize_speaker(
+                    updated[-1].get(
+                        "speaker",
+                        DEFAULT_SPEAKER,
+                    )
                 )
 
             else:
@@ -1011,9 +1181,9 @@ def apply_corrections(
             f"No se puede procesar la línea: {line}"
         )
 
-    # =========================================================
-    # AGRUPAR INSERCIONES
-    # =========================================================
+    # ========================================================
+    # PROCESAR INSERCIONES 2.1 / 2.2 / 3.1...
+    # ========================================================
 
     grouped = {}
 
@@ -1030,57 +1200,26 @@ def apply_corrections(
             insertion
         )
 
-    # =========================================================
-    # PROCESAR CADA GRUPO
-    # =========================================================
-
-    # IMPORTANTE:
-    #
-    # Se procesan de mayor índice a menor.
-    #
-    # Así las posiciones originales de los segmentos
-    # no se rompen cuando insertamos nuevos elementos.
-    #
-    # Ejemplo:
-    #
-    # 32.1
-    # 4.1
-    #
-    # primero se procesa 32.1 y después 4.1.
-    #
-    # Pero las inserciones se colocan utilizando
-    # la estructura original.
-
-    for base_index in sorted(
-        grouped.keys(),
-        reverse=True,
-    ):
-
-        group = grouped[
-            base_index
-        ]
+    for base_index, group in grouped.items():
 
         if base_index < 1:
-
             print(
                 f"Índice base no válido: "
                 f"{base_index}"
             )
-
             continue
 
         if base_index > len(updated):
-
             print(
                 f"No existe el subtítulo "
-                f"{base_index} para insertar."
+                f"{base_index} para insertar "
+                f"una frase después de él."
             )
-
             continue
 
-        # =====================================================
-        # ORDENAR 32.1, 32.2, 32.3...
-        # =====================================================
+        # ====================================================
+        # ORDENAR 2.1, 2.2, 2.3...
+        # ====================================================
 
         group.sort(
             key=lambda item: item[
@@ -1088,17 +1227,9 @@ def apply_corrections(
             ]
         )
 
-        # =====================================================
-        # EL SEGMENTO BASE ORIGINAL
-        # =====================================================
-
         previous_segment = updated[
             base_index - 1
         ]
-
-        # =====================================================
-        # SIGUIENTE SEGMENTO ORIGINAL
-        # =====================================================
 
         if base_index < len(updated):
 
@@ -1110,27 +1241,24 @@ def apply_corrections(
 
             next_segment = None
 
-        # =====================================================
+        # ====================================================
         # SPEAKER POR DEFECTO
-        # =====================================================
+        # ====================================================
 
-        insertion_speaker = (
+        insertion_speaker = normalize_speaker(
             previous_segment.get(
                 "speaker",
                 DEFAULT_SPEAKER,
             )
         )
 
-        if not insertion_speaker:
-            insertion_speaker = DEFAULT_SPEAKER
-
-        # =====================================================
-        # ELIMINAR ÍNDICES DUPLICADOS
-        # =====================================================
-
-        valid_group = []
+        # ====================================================
+        # VALIDAR ÍNDICES
+        # ====================================================
 
         seen_indexes = set()
+
+        valid_group = []
 
         for item in group:
 
@@ -1142,8 +1270,7 @@ def apply_corrections(
 
                 print(
                     f"Índice duplicado: "
-                    f"{base_index}."
-                    f"{insertion_index}"
+                    f"{base_index}.{insertion_index}"
                 )
 
                 continue
@@ -1156,46 +1283,16 @@ def apply_corrections(
                 item
             )
 
-        if not valid_group:
-            continue
-
-        # =====================================================
-        # CALCULAR TIEMPOS AUTOMÁTICOS
-        # =====================================================
-
-        automatic_times = None
-
-        has_manual_times = any(
-            item["start"] is not None
-            and item["end"] is not None
-            for item in valid_group
+        total = len(
+            valid_group
         )
 
-        if not has_manual_times:
+        if total == 0:
+            continue
 
-            try:
-
-                automatic_times = (
-                    calculate_insertion_times(
-                        previous_segment,
-                        next_segment,
-                        len(valid_group),
-                    )
-                )
-
-            except ValueError as error:
-
-                print(
-                    f"No se pueden insertar "
-                    f"frases después de "
-                    f"{base_index}: {error}"
-                )
-
-                continue
-
-        # =====================================================
-        # CREAR SEGMENTOS
-        # =====================================================
+        # ====================================================
+        # CREAR NUEVOS SEGMENTOS
+        # ====================================================
 
         new_segments = []
 
@@ -1217,7 +1314,9 @@ def apply_corrections(
 
             if item_speaker:
 
-                final_speaker = item_speaker
+                final_speaker = normalize_speaker(
+                    item_speaker
+                )
 
             else:
 
@@ -1240,15 +1339,13 @@ def apply_corrections(
 
                 else:
 
-                    if automatic_times is None:
-
-                        raise ValueError(
-                            "No se pudo calcular "
-                            "el tiempo automático."
-                        )
-
                     start_value, end_value = (
-                        automatic_times[position]
+                        calculate_auto_time(
+                            previous_segment,
+                            next_segment,
+                            position,
+                            total,
+                        )
                     )
 
             except ValueError as error:
@@ -1300,9 +1397,9 @@ def apply_corrections(
         if not new_segments:
             continue
 
-        # =====================================================
-        # INSERTAR DESPUÉS DEL BASE
-        # =====================================================
+        # ====================================================
+        # INSERTAR DESPUÉS DEL SEGMENTO BASE
+        # ====================================================
 
         insertion_position = base_index
 
@@ -1313,120 +1410,15 @@ def apply_corrections(
 
         changed = True
 
-    # =========================================================
-    # RECONSTRUIR EL ORDEN LÓGICO
-    # =========================================================
-    #
-    # NO usamos simplemente:
-    #
-    #     sort(start)
-    #
-    # porque una inserción manual podría tener un timestamp
-    # ligeramente diferente.
-    #
-    # En cambio, usamos la etiqueta:
-    #
-    # 32
-    # 32.1
-    # 32.2
-    # 33
-    #
-    # para conservar el orden lógico.
-    #
-    # Para segmentos sin etiqueta se utiliza su posición.
-    # =========================================================
+    # ========================================================
+    # ORDENAR POR TIEMPO
+    # ========================================================
 
-    def logical_label_key(segment, fallback):
-
-        label = segment.get(
-            "_label",
-            str(fallback),
+    updated.sort(
+        key=lambda segment: float(
+            segment["start"]
         )
-
-        match = re.match(
-            r"^(\d+)(?:\.(\d+))?$",
-            str(label),
-        )
-
-        if not match:
-
-            return (
-                fallback,
-                0,
-            )
-
-        base = int(
-            match.group(1)
-        )
-
-        insertion = (
-            int(match.group(2))
-            if match.group(2) is not None
-            else 0
-        )
-
-        return (
-            base,
-            insertion,
-        )
-
-    updated = [
-        segment
-        for _, segment in sorted(
-            enumerate(updated),
-            key=lambda item: logical_label_key(
-                item[1],
-                item[0],
-            ),
-        )
-    ]
-
-    # =========================================================
-    # COMPROBAR QUE NO HAYA SOLAPAMIENTOS
-    # =========================================================
-
-    for index in range(
-        1,
-        len(updated),
-    ):
-
-        previous = updated[
-            index - 1
-        ]
-
-        current = updated[
-            index
-        ]
-
-        previous_end = float(
-            previous["end"]
-        )
-
-        current_start = float(
-            current["start"]
-        )
-
-        if current_start < previous_end:
-
-            print(
-                "⚠️ ADVERTENCIA: "
-                f"solapamiento detectado entre "
-                f"{previous.get('_label', index)} "
-                f"y "
-                f"{current.get('_label', index + 1)}."
-            )
-
-            print(
-                f"Anterior: "
-                f"{previous['start']}-"
-                f"{previous['end']}"
-            )
-
-            print(
-                f"Actual: "
-                f"{current['start']}-"
-                f"{current['end']}"
-            )
+    )
 
     return updated, changed
 
@@ -1728,14 +1720,21 @@ def run_review(
                     "Para cambiar solo el texto:\n"
                     "3. Texto corregido\n\n"
                     "Para cambiar solo el color/hablante:\n"
-                    "3. @speaker_3\n\n"
+                    "3. @1\n\n"
                     "Para cambiar texto + color:\n"
-                    "3. @speaker_3 Texto corregido\n\n"
-                    "Para añadir después de un subtítulo:\n"
-                    "32.1 Texto nuevo\n"
-                    "32.2 Otra frase\n\n"
+                    "3. @1 Texto corregido\n\n"
+                    "Para añadir entre dos:\n"
+                    "2.1 Texto nuevo\n"
+                    "2.2 Otra frase\n\n"
                     "Para controlar el tiempo:\n"
-                    "32.1 [0.58-0.62] Texto nuevo",
+                    "2.1 [0.4-0.5] Texto nuevo\n\n"
+                    "🎨 SPEAKERS:\n"
+                    "@1 → Kurai (kuraimure) → negro\n"
+                    "@2 → Speaker 2\n"
+                    "@3 → Speaker 3\n"
+                    "@4 → Speaker 4\n"
+                    "@5 → Speaker 5\n"
+                    "@6 → Speaker 6",
                 )
 
                 continue
