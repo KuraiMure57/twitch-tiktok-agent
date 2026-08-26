@@ -16,20 +16,20 @@ SPEAKER_STYLES = {
     # TU VOZ
     # --------------------------------------------------------
     #
-    # Tu voz debe aparecer con borde AZUL.
+    # Kurai debe aparecer con borde NEGRO.
     #
     "kuraimure": {
-        "outline": (0, 102, 255),
+        "outline": (0, 0, 0),
     },
 
     # --------------------------------------------------------
     # SEGUNDA PERSONA
     # --------------------------------------------------------
     #
-    # Speaker 2 debe aparecer con borde NEGRO.
+    # Speaker 2 debe aparecer con borde AZUL.
     #
     "speaker_2": {
-        "outline": (0, 0, 0),
+        "outline": (0, 102, 255),
     },
 
     # --------------------------------------------------------
@@ -81,7 +81,6 @@ def get_speaker_style(
     """
 
     if not speaker:
-
         speaker = DEFAULT_SPEAKER
 
     return SPEAKER_STYLES.get(
