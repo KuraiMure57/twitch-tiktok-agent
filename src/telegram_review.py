@@ -14,6 +14,7 @@ POLL_TIMEOUT_SECONDS = 20
 
 DEFAULT_SPEAKER = "kuraimure"
 
+
 # ============================================================
 # ATAJOS DE SPEAKER
 # ============================================================
@@ -25,11 +26,7 @@ DEFAULT_SPEAKER = "kuraimure"
 # @5 = speaker_5
 # @6 = speaker_6
 #
-# También se siguen aceptando:
-# @kuraimure
-# @speaker_2
-# @speaker_3
-# etc.
+# También se aceptan los nombres completos.
 # ============================================================
 
 SPEAKER_ALIASES = {
@@ -79,9 +76,32 @@ def normalize_speaker(speaker):
     return speaker
 
 
+def speaker_to_alias(speaker):
+    """
+    Convierte un speaker interno a su alias corto.
+
+        kuraimure -> @1
+        speaker_2 -> @2
+        speaker_3 -> @3
+        ...
+
+    Se utiliza principalmente para mostrar información
+    más sencilla al usuario.
+    """
+
+    speaker = normalize_speaker(speaker)
+
+    for alias, real_speaker in SPEAKER_ALIASES.items():
+
+        if real_speaker == speaker:
+            return f"@{alias}"
+
+    return f"@{speaker}"
+
+
 def speaker_display_name(speaker):
     """
-    Devuelve un nombre amigable para mostrar en Telegram.
+    Devuelve un nombre amigable para mostrar.
     """
 
     speaker = normalize_speaker(speaker)
@@ -90,6 +110,7 @@ def speaker_display_name(speaker):
         return "Kurai (kuraimure) → negro"
 
     if speaker.startswith("speaker_"):
+
         number = speaker.replace(
             "speaker_",
             "",
@@ -101,16 +122,23 @@ def speaker_display_name(speaker):
 
 
 def api_call(token, method, data=None, files=None):
-    url = f"https://api.telegram.org/bot{token}/{method}"
+
+    url = (
+        f"https://api.telegram.org/bot"
+        f"{token}/{method}"
+    )
 
     if files:
+
         response = requests.post(
             url,
             data=data,
             files=files,
             timeout=120,
         )
+
     else:
+
         response = requests.post(
             url,
             json=data or {},
@@ -118,6 +146,7 @@ def api_call(token, method, data=None, files=None):
         )
 
     if not response.ok:
+
         print("RESPUESTA DE TELEGRAM:")
         print(response.text)
 
@@ -129,14 +158,17 @@ def api_call(token, method, data=None, files=None):
     payload = response.json()
 
     if not payload.get("ok"):
+
         raise TelegramError(
-            f"Telegram API error in {method}: {payload}"
+            f"Telegram API error in {method}: "
+            f"{payload}"
         )
 
     return payload["result"]
 
 
 def clear_pending_updates(token):
+
     updates = api_call(
         token,
         "getUpdates",
@@ -157,12 +189,16 @@ def clear_pending_updates(token):
 
 
 def build_caption(metadata):
+
     title = metadata.get(
         "title",
         "Clip para revisión",
     )
 
-    hook = metadata.get("hook", "")
+    hook = metadata.get(
+        "hook",
+        "",
+    )
 
     description = metadata.get(
         "description",
@@ -174,7 +210,9 @@ def build_caption(metadata):
         [],
     )
 
-    score = metadata.get("score")
+    score = metadata.get(
+        "score"
+    )
 
     lines = [
         "🎬 CLIP PARA REVISAR",
@@ -183,23 +221,27 @@ def build_caption(metadata):
     ]
 
     if hook:
+
         lines.append(
             f"🎯 Hook: {hook}"
         )
 
     if description:
+
         lines.extend([
             "",
             f"📝 Descripción: {description}",
         ])
 
     if score is not None:
+
         lines.extend([
             "",
             f"⭐ Puntuación: {score}/100",
         ])
 
     if hashtags:
+
         lines.extend([
             "",
             " ".join(hashtags),
@@ -209,6 +251,7 @@ def build_caption(metadata):
 
 
 def review_keyboard():
+
     return {
         "inline_keyboard": [
             [
@@ -237,7 +280,9 @@ def send_video(
     video_path,
     metadata,
 ):
+
     if not video_path.exists():
+
         raise FileNotFoundError(
             f"No existe el vídeo: {video_path}"
         )
@@ -248,18 +293,24 @@ def send_video(
     )
 
     if size_mb > 50:
+
         raise ValueError(
             f"El vídeo pesa {size_mb:.2f} MB. "
             "Telegram limita sendVideo a 50 MB."
         )
 
-    with video_path.open("rb") as video_file:
+    with video_path.open(
+        "rb"
+    ) as video_file:
+
         result = api_call(
             token,
             "sendVideo",
             data={
                 "chat_id": chat_id,
-                "caption": build_caption(metadata),
+                "caption": build_caption(
+                    metadata
+                ),
                 "supports_streaming": "true",
                 "reply_markup": json.dumps(
                     review_keyboard(),
@@ -283,6 +334,7 @@ def answer_callback(
     callback_id,
     text,
 ):
+
     api_call(
         token,
         "answerCallbackQuery",
@@ -299,6 +351,7 @@ def edit_review_message(
     message_id,
     caption,
 ):
+
     api_call(
         token,
         "editMessageCaption",
@@ -320,6 +373,7 @@ def send_message(
     chat_id,
     text,
 ):
+
     api_call(
         token,
         "sendMessage",
@@ -334,23 +388,17 @@ def read_subtitles(path):
     """
     Lee los subtítulos.
 
-    Formato nuevo:
+    Formato:
 
         start|end|speaker|text
 
-    Ejemplo:
-
-        0.000|2.500|kuraimure|Hola chicos
-
-    También acepta el formato antiguo:
+    También acepta:
 
         start|end|text
-
-    En ese caso se asigna automáticamente
-    'kuraimure' como speaker.
     """
 
     if not path.exists():
+
         raise FileNotFoundError(
             f"No existe el archivo de subtítulos: {path}"
         )
@@ -363,12 +411,16 @@ def read_subtitles(path):
     ) as file:
 
         for line in file:
+
             line = line.rstrip("\n")
 
             if not line.strip():
                 continue
 
-            parts = line.split("|", 3)
+            parts = line.split(
+                "|",
+                3,
+            )
 
             if len(parts) == 4:
 
@@ -405,7 +457,7 @@ def write_subtitles(
     segments,
 ):
     """
-    Guarda los subtítulos utilizando:
+    Guarda:
 
         start|end|speaker|text
     """
@@ -436,6 +488,7 @@ def get_segment_label(
     segment,
     index,
 ):
+
     return segment.get(
         "_label",
         str(index),
@@ -445,16 +498,6 @@ def get_segment_label(
 def format_subtitles_for_telegram(
     segments,
 ):
-    """
-    Prepara la lista de subtítulos que se envía
-    al usuario por Telegram.
-
-    Incluye la leyenda de speakers:
-    
-        @1 = Kurai
-        @2 = speaker_2
-        etc.
-    """
 
     lines = [
         "📝 SUBTÍTULOS ACTUALES",
@@ -465,6 +508,7 @@ def format_subtitles_for_telegram(
         segments,
         start=1,
     ):
+
         text = segment.get(
             "text",
             "",
@@ -504,6 +548,16 @@ def format_subtitles_for_telegram(
         "✏️🎨 PARA CAMBIAR TEXTO + COLOR:",
         "",
         "3. @1 Texto corregido",
+        "",
+        "🔄 PARA INTERCAMBIAR DOS SPEAKERS:",
+        "",
+        "@1 > @2",
+        "➡️ Intercambia todos los @1 y @2.",
+        "",
+        "@2 > @3",
+        "➡️ Intercambia todos los @2 y @3.",
+        "",
+        "Los demás speakers se mantienen igual.",
         "",
         "➕ PARA AÑADIR UNA FRASE ENTRE DOS:",
         "",
@@ -553,25 +607,11 @@ def format_subtitles_for_telegram(
 
 
 def parse_custom_time(value):
-    """
-    Formato:
-
-    minutos.segundos
-
-    Ejemplos:
-
-    0.7  = 00:07
-    0.12 = 00:12
-    1.2  = 01:02
-    1.15 = 01:15
-    7    = 07:00
-    7.5  = 07:05
-    7.50 = 07:50
-    """
 
     value = value.strip()
 
     if not value:
+
         raise ValueError(
             "Tiempo vacío."
         )
@@ -587,11 +627,13 @@ def parse_custom_time(value):
         seconds_text = parts[1]
 
         if not minutes_text.isdigit():
+
             raise ValueError(
                 f"Minutos no válidos: {value}"
             )
 
         if not seconds_text.isdigit():
+
             raise ValueError(
                 f"Segundos no válidos: {value}"
             )
@@ -605,6 +647,7 @@ def parse_custom_time(value):
         )
 
         if seconds >= 60:
+
             raise ValueError(
                 f"Los segundos deben estar "
                 f"entre 0 y 59: {value}"
@@ -616,6 +659,7 @@ def parse_custom_time(value):
         )
 
     if value.isdigit():
+
         return int(value) * 60
 
     raise ValueError(
@@ -624,57 +668,57 @@ def parse_custom_time(value):
 
 
 def format_seconds(seconds):
+
     return f"{float(seconds):.3f}"
 
 
 def parse_correction_line(line):
-    """
-    Formatos aceptados:
-
-    Solo texto:
-
-        3. Texto corregido
-
-    Solo speaker/color:
-
-        3. @1
-
-    Texto + speaker/color:
-
-        3. @1 Texto corregido
-
-    Texto con tiempo:
-
-        3. [0.4-0.5] Texto corregido
-
-    Texto + speaker + tiempo:
-
-        3. [0.4-0.5] @1 Texto corregido
-
-    Nueva frase:
-
-        2.1 Texto nuevo
-
-    Nueva frase + speaker:
-
-        2.1 @1 Texto nuevo
-
-    Nueva frase con tiempo:
-
-        2.1 [0.4-0.5] Texto nuevo
-
-    Nueva frase con tiempo + speaker:
-
-        2.1 [0.4-0.5] @1 Texto nuevo
-    """
 
     line = line.strip()
 
     if not line:
         return None
 
+    # ========================================================
+    # PRIMERO COMPROBAMOS SI ES UN INTERCAMBIO GLOBAL
+    #
+    # Ejemplo:
+    #
+    # @1 > @2
+    #
+    # ========================================================
+
+    swap_match = re.match(
+        r"^@([A-Za-z0-9_-]+)"
+        r"\s*>\s*"
+        r"@([A-Za-z0-9_-]+)"
+        r"$",
+        line,
+    )
+
+    if swap_match:
+
+        speaker_a = normalize_speaker(
+            swap_match.group(1)
+        )
+
+        speaker_b = normalize_speaker(
+            swap_match.group(2)
+        )
+
+        return {
+            "type": "swap",
+            "speaker_a": speaker_a,
+            "speaker_b": speaker_b,
+        }
+
+    # ========================================================
+    # CORRECCIONES NORMALES
+    # ========================================================
+
     match = re.match(
-        r"^(\d+)(?:\.(\d+))?\s*[\.\|]?\s*(.*)$",
+        r"^(\d+)(?:\.(\d+))?"
+        r"\s*[\.\|]?\s*(.*)$",
         line,
     )
 
@@ -721,18 +765,14 @@ def parse_correction_line(line):
     # ========================================================
     # SPEAKER OPCIONAL
     #
-    # Acepta:
-    #
     # @1
     # @2
     # @3
-    # ...
     #
-    # Y también:
+    # o:
     #
     # @kuraimure
     # @speaker_2
-    # ...
     # ========================================================
 
     speaker = None
@@ -745,17 +785,21 @@ def parse_correction_line(line):
 
     if speaker_match:
 
-        raw_speaker = speaker_match.group(1)
+        raw_speaker = (
+            speaker_match.group(1)
+        )
 
         speaker = normalize_speaker(
             raw_speaker
         )
 
         content = (
-            speaker_match.group(2) or ""
+            speaker_match.group(2)
+            or ""
         ).strip()
 
     return {
+        "type": "normal",
         "base_index": base_index,
         "insertion_index": insertion_index,
         "start": start,
@@ -765,7 +809,11 @@ def parse_correction_line(line):
     }
 
 
-def get_numeric_time(segment, key):
+def get_numeric_time(
+    segment,
+    key,
+):
+
     return float(
         segment.get(
             key,
@@ -780,16 +828,10 @@ def calculate_auto_time(
     position,
     total,
 ):
-    """
-    Reparte automáticamente el espacio disponible
-    entre el subtítulo anterior y el siguiente.
-    """
 
-    previous_end = (
-        get_numeric_time(
-            previous_segment,
-            "end",
-        )
+    previous_end = get_numeric_time(
+        previous_segment,
+        "end",
     )
 
     next_start = (
@@ -807,6 +849,7 @@ def calculate_auto_time(
     )
 
     if available <= 0.05:
+
         raise ValueError(
             "No hay espacio suficiente entre "
             "los subtítulos para insertar "
@@ -824,6 +867,7 @@ def calculate_auto_time(
     )
 
     if usable <= 0.05:
+
         raise ValueError(
             "El espacio disponible es demasiado "
             "pequeño para insertar el subtítulo."
@@ -855,30 +899,6 @@ def apply_corrections(
     segments,
     correction_text,
 ):
-    """
-    Aplica correcciones y permite cambiar:
-
-        3. Texto corregido
-
-    solo texto.
-
-        3. @1
-
-    solo speaker/color.
-
-        3. @1 Texto corregido
-
-    texto + speaker/color.
-
-    También mantiene el sistema de inserciones:
-
-        2.1 Texto
-        2.2 Texto
-
-    y tiempos manuales:
-
-        2.1 [0.4-0.5] Texto
-    """
 
     lines = [
         line.strip()
@@ -887,6 +907,7 @@ def apply_corrections(
     ]
 
     if not lines:
+
         return segments, False
 
     updated = [
@@ -895,42 +916,116 @@ def apply_corrections(
     ]
 
     # ========================================================
-    # ASEGURAR SPEAKER
+    # ASEGURAR SPEAKERS
     # ========================================================
 
     for segment in updated:
 
-        speaker = normalize_speaker(
+        segment["speaker"] = normalize_speaker(
             segment.get(
                 "speaker",
                 DEFAULT_SPEAKER,
             )
         )
 
-        segment["speaker"] = speaker
-
     changed = False
 
     # ========================================================
-    # ASEGURAR ETIQUETAS BASE
+    # ASEGURAR ETIQUETAS
     # ========================================================
 
     for index, segment in enumerate(
         updated,
         start=1,
     ):
+
         segment.setdefault(
             "_label",
             str(index),
         )
 
     # ========================================================
-    # CORRECCIONES NORMALES
+    # PROCESAR INTERCAMBIOS GLOBALES
+    #
+    # @1 > @2
+    #
+    # Esto cambia todos los subtítulos:
+    #
+    # kuraimure <-> speaker_2
+    #
+    # Los demás permanecen exactamente igual.
+    # ========================================================
+
+    normal_lines = []
+
+    for line in lines:
+
+        parsed = parse_correction_line(
+            line
+        )
+
+        if parsed is None:
+            continue
+
+        if parsed.get("type") == "swap":
+
+            speaker_a = parsed[
+                "speaker_a"
+            ]
+
+            speaker_b = parsed[
+                "speaker_b"
+            ]
+
+            if speaker_a == speaker_b:
+
+                print(
+                    f"No se puede intercambiar "
+                    f"el mismo speaker: "
+                    f"{speaker_a}"
+                )
+
+                continue
+
+            print(
+                f"INTERCAMBIO GLOBAL: "
+                f"{speaker_a} <-> {speaker_b}"
+            )
+
+            for segment in updated:
+
+                current_speaker = normalize_speaker(
+                    segment.get(
+                        "speaker",
+                        DEFAULT_SPEAKER,
+                    )
+                )
+
+                if current_speaker == speaker_a:
+
+                    segment["speaker"] = speaker_b
+
+                    changed = True
+
+                elif current_speaker == speaker_b:
+
+                    segment["speaker"] = speaker_a
+
+                    changed = True
+
+            continue
+
+        normal_lines.append(
+            line
+        )
+
+    # ========================================================
+    # PROCESAR CORRECCIONES NORMALES
     # ========================================================
 
     insertions = []
 
-    for line in lines:
+    for line in normal_lines:
 
         parsed = parse_correction_line(
             line
@@ -964,29 +1059,30 @@ def apply_corrections(
         ]
 
         # ====================================================
-        # INSERCIÓN JERÁRQUICA
+        # INSERCIÓN
         # ====================================================
 
         if insertion_index is not None:
 
             if not new_text:
+
                 print(
                     f"No se puede insertar "
-                    f"{base_index}.{insertion_index} "
+                    f"{base_index}."
+                    f"{insertion_index} "
                     f"sin texto."
                 )
+
                 continue
 
-            insertions.append(
-                {
-                    "base_index": base_index,
-                    "insertion_index": insertion_index,
-                    "start": new_start,
-                    "end": new_end,
-                    "speaker": new_speaker,
-                    "text": new_text,
-                }
-            )
+            insertions.append({
+                "base_index": base_index,
+                "insertion_index": insertion_index,
+                "start": new_start,
+                "end": new_end,
+                "speaker": new_speaker,
+                "text": new_text,
+            })
 
             continue
 
@@ -1086,11 +1182,15 @@ def apply_corrections(
 
         if base_index == len(updated) + 1:
 
-            if new_start is None or new_end is None:
+            if (
+                new_start is None
+                or new_end is None
+            ):
 
                 print(
                     f"No se puede añadir el "
-                    f"subtítulo {base_index} sin tiempos."
+                    f"subtítulo {base_index} "
+                    f"sin tiempos."
                 )
 
                 continue
@@ -1099,7 +1199,8 @@ def apply_corrections(
 
                 print(
                     f"No se puede añadir el "
-                    f"subtítulo {base_index} sin texto."
+                    f"subtítulo {base_index} "
+                    f"sin texto."
                 )
 
                 continue
@@ -1203,23 +1304,23 @@ def apply_corrections(
     for base_index, group in grouped.items():
 
         if base_index < 1:
+
             print(
                 f"Índice base no válido: "
                 f"{base_index}"
             )
+
             continue
 
         if base_index > len(updated):
+
             print(
                 f"No existe el subtítulo "
                 f"{base_index} para insertar "
                 f"una frase después de él."
             )
-            continue
 
-        # ====================================================
-        # ORDENAR 2.1, 2.2, 2.3...
-        # ====================================================
+            continue
 
         group.sort(
             key=lambda item: item[
@@ -1241,20 +1342,12 @@ def apply_corrections(
 
             next_segment = None
 
-        # ====================================================
-        # SPEAKER POR DEFECTO
-        # ====================================================
-
         insertion_speaker = normalize_speaker(
             previous_segment.get(
                 "speaker",
                 DEFAULT_SPEAKER,
             )
         )
-
-        # ====================================================
-        # VALIDAR ÍNDICES
-        # ====================================================
 
         seen_indexes = set()
 
@@ -1289,10 +1382,6 @@ def apply_corrections(
 
         if total == 0:
             continue
-
-        # ====================================================
-        # CREAR NUEVOS SEGMENTOS
-        # ====================================================
 
         new_segments = []
 
@@ -1397,10 +1486,6 @@ def apply_corrections(
         if not new_segments:
             continue
 
-        # ====================================================
-        # INSERTAR DESPUÉS DEL SEGMENTO BASE
-        # ====================================================
-
         insertion_position = base_index
 
         updated[
@@ -1428,6 +1513,7 @@ def update_review_state(
     status,
     correction=None,
 ):
+
     with path.open(
         "r",
         encoding="utf-8",
@@ -1478,6 +1564,7 @@ def rerender_video(
     subtitles,
     output_video,
 ):
+
     command = [
         sys.executable,
         "src/subtitle_burner.py",
@@ -1496,12 +1583,14 @@ def get_updates(
     token,
     offset,
 ):
+
     data = {
         "limit": 100,
         "timeout": POLL_TIMEOUT_SECONDS,
     }
 
     if offset is not None:
+
         data["offset"] = offset
 
     return api_call(
@@ -1521,6 +1610,7 @@ def run_review(
     vertical_video_path,
     timeout_seconds,
 ):
+
     with metadata_path.open(
         "r",
         encoding="utf-8",
@@ -1723,6 +1813,10 @@ def run_review(
                     "3. @1\n\n"
                     "Para cambiar texto + color:\n"
                     "3. @1 Texto corregido\n\n"
+                    "Para intercambiar speakers:\n"
+                    "@1 > @2\n"
+                    "➡️ Intercambia todos los @1 y @2.\n\n"
+                    "Los demás speakers se mantienen igual.\n\n"
                     "Para añadir entre dos:\n"
                     "2.1 Texto nuevo\n"
                     "2.2 Otra frase\n\n"
@@ -1835,7 +1929,9 @@ if __name__ == "__main__":
         review_state_path=Path(sys.argv[3]),
         subtitles_path=Path(sys.argv[4]),
         vertical_video_path=Path(sys.argv[5]),
-        timeout_seconds=int(sys.argv[6]),
+        timeout_seconds=int(
+            sys.argv[6]
+        ),
     )
 
     with open(
