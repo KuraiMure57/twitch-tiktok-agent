@@ -1,0 +1,417 @@
+name: External Clip
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_id:
+        description: "GitHub Actions artifact ID del proyecto twitch-vod-clip-agent"
+        required: true
+        type: string
+
+      clip_filename:
+        description: "Nombre del MP4 dentro del artifact"
+        required: true
+        type: string
+
+concurrency:
+  group: twitch-tiktok-telegram-review
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  external-clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ============================================================
+      # FFMPEG
+      # ============================================================
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+          echo "FFmpeg instalado:"
+          ffmpeg -version | head -n 1
+
+
+      # ============================================================
+      # PYTHON
+      # ============================================================
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install requests
+          pip install yt-dlp
+
+
+      # ============================================================
+      # DESCARGAR CLIP EXTERNO
+      # ============================================================
+
+      - name: Download approved clip artifact
+        env:
+          SOURCE_REPOSITORY: KuraiMure57/twitch-vod-clip-agent
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          CLIP_FILENAME: ${{ inputs.clip_filename }}
+          GITHUB_TOKEN_CROSS_REPO: ${{ secrets.CROSS_REPO_TOKEN }}
+
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GITHUB_TOKEN_CROSS_REPO:-}" ]; then
+            echo "ERROR: Falta el secret CROSS_REPO_TOKEN."
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "DESCARGANDO CLIP EXTERNO"
+          echo "========================================"
+
+          echo "Repositorio origen: ${SOURCE_REPOSITORY}"
+          echo "Artifact ID: ${ARTIFACT_ID}"
+          echo "Archivo solicitado: ${CLIP_FILENAME}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN_CROSS_REPO}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${SOURCE_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" \
+            --output external_clip_artifact.zip
+
+          mkdir -p external_clip_artifact
+
+          unzip -q \
+            external_clip_artifact.zip \
+            -d external_clip_artifact
+
+          echo ""
+          echo "Contenido del artifact:"
+
+          find external_clip_artifact \
+            -maxdepth 3 \
+            -type f \
+            -print
+
+          MATCHED_FILE="$(
+            find external_clip_artifact \
+              -type f \
+              -name "${CLIP_FILENAME}" \
+              -print \
+              -quit
+          )"
+
+          if [ -z "${MATCHED_FILE}" ]; then
+            echo ""
+            echo "ERROR: No se encontró ${CLIP_FILENAME} dentro del artifact."
+            exit 1
+          fi
+
+          cp \
+            "${MATCHED_FILE}" \
+            twitch_clip.mp4
+
+          if [ ! -s twitch_clip.mp4 ]; then
+            echo "ERROR: twitch_clip.mp4 está vacío."
+            exit 1
+          fi
+
+          echo ""
+          echo "Clip externo preparado:"
+
+          ls -lh twitch_clip.mp4
+
+          echo ""
+          echo "DURACIÓN REAL:"
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            twitch_clip.mp4
+
+
+      # ============================================================
+      # WHISPER
+      # ============================================================
+
+      - name: Run Whisper
+        run: |
+          python src/transcribe.py \
+            twitch_clip.mp4 \
+            output.txt
+
+      - name: Show Whisper output
+        run: |
+          echo "=============================="
+          echo "WHISPER OUTPUT"
+          echo "=============================="
+
+          cat output.txt
+
+      - name: Show Whisper JSON
+        run: |
+          echo "=============================="
+          echo "WHISPER JSON"
+          echo "=============================="
+
+          cat output.json
+
+
+      # ============================================================
+      # FORMATEAR SUBTÍTULOS
+      # ============================================================
+
+      - name: Format subtitles
+        run: |
+          python src/subtitle_formatter.py \
+            output.json \
+            formatted_subtitles.json
+
+      - name: Show formatted subtitles
+        run: |
+          cat formatted_subtitles.json
+
+
+      # ============================================================
+      # CORREGIR FORMATO
+      # ============================================================
+
+      - name: Correct subtitles
+        run: |
+          python src/subtitle_corrector.py \
+            formatted_subtitles.json \
+            corrected_subtitles.json
+
+      - name: Show corrected subtitles
+        run: |
+          cat corrected_subtitles.json
+
+
+      # ============================================================
+      # CREAR INPUT PARA GEMINI
+      # ============================================================
+
+      - name: Build AI input
+        run: |
+          python - <<'PY'
+          import json
+
+          with open(
+              "corrected_subtitles.json",
+              "r",
+              encoding="utf-8",
+          ) as file:
+              subtitles = json.load(file)
+
+          if not isinstance(subtitles, dict):
+              raise ValueError(
+                  "corrected_subtitles.json debe ser un objeto JSON."
+              )
+
+          segments = subtitles.get(
+              "segments",
+              [],
+          )
+
+          if not isinstance(segments, list):
+              raise ValueError(
+                  "'segments' debe ser una lista."
+              )
+
+          ai_input = {
+              "language": subtitles.get(
+                  "language",
+                  "es",
+              ),
+              "segments": segments,
+          }
+
+          with open(
+              "ai_input.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(
+                  ai_input,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          PY
+
+      - name: Show AI input
+        run: |
+          cat ai_input.json
+
+
+      # ============================================================
+      # GEMINI
+      # ============================================================
+
+      - name: Analyze video with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+        run: |
+          python src/gemini_analyzer.py \
+            twitch_clip.mp4 \
+            ai_input.json \
+            ai_response.json
+
+      - name: Show AI response
+        run: |
+          cat ai_response.json
+
+
+      # ============================================================
+      # VALIDAR RESPUESTA IA
+      # ============================================================
+
+      - name: Validate AI response
+        run: |
+          python src/ai_response_validator.py \
+            ai_response.json
+
+
+      # ============================================================
+      # SCORE
+      # ============================================================
+
+      - name: Calculate score
+        run: |
+          python src/scoring.py \
+            ai_response.json \
+            scored_response.json
+
+      - name: Show scored response
+        run: |
+          cat scored_response.json
+
+
+      # ============================================================
+      # METADATA
+      # ============================================================
+
+      - name: Generate clip metadata
+        run: |
+          python src/metadata_generator.py \
+            scored_response.json \
+            metadata.json
+
+      - name: Show metadata
+        run: |
+          cat metadata.json
+
+
+      # ============================================================
+      # SUBTÍTULOS FINALES
+      # ============================================================
+
+      - name: Build final subtitles
+        run: |
+          python src/ai_response_handler.py \
+            ai_response.json \
+            corrected_subtitles.json \
+            final_subtitles.txt
+
+      - name: Show final subtitles
+        run: |
+          cat final_subtitles.txt
+
+
+      # ============================================================
+      # QUEMAR SUBTÍTULOS
+      # ============================================================
+
+      - name: Burn subtitles into TikTok video
+        run: |
+          python src/subtitle_burner.py \
+            twitch_clip.mp4 \
+            final_subtitles.txt \
+            final_tiktok.mp4
+
+      - name: Check final video
+        run: |
+          if [ ! -f final_tiktok.mp4 ]; then
+            echo "ERROR: No se ha creado final_tiktok.mp4"
+            exit 1
+          fi
+
+          echo "Vídeo final:"
+          ls -lh final_tiktok.mp4
+
+          echo ""
+          echo "Duración final:"
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            final_tiktok.mp4
+
+
+      # ============================================================
+      # TELEGRAM REVIEW
+      # ============================================================
+
+      - name: Telegram review
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+        run: |
+          python src/telegram_review.py \
+            final_tiktok.mp4 \
+            metadata.json \
+            review_state.json \
+            final_subtitles.txt \
+            twitch_clip.mp4 \
+            7200
+
+
+      # ============================================================
+      # ARTIFACTS
+      # ============================================================
+
+      - name: Upload processed external clip
+        if: always()
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: processed-external-clip-${{ github.run_id }}
+
+          path: |
+            twitch_clip.mp4
+            final_tiktok.mp4
+            metadata.json
+            review_state.json
+            final_subtitles.txt
+            ai_response.json
+            scored_response.json
+
+          if-no-files-found: ignore
