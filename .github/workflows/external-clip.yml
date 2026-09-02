@@ -376,6 +376,26 @@ jobs:
 
 
       # ============================================================
+      # CREAR ESTADO DE REVISIÓN
+      # ============================================================
+
+      - name: Create review state
+        run: |
+          python src/review_manager.py \
+            create \
+            metadata.json \
+            review_state.json
+
+      - name: Show review state
+        run: |
+          echo "=============================="
+          echo "REVIEW STATE"
+          echo "=============================="
+
+          cat review_state.json
+
+
+      # ============================================================
       # TELEGRAM REVIEW
       # ============================================================
 
