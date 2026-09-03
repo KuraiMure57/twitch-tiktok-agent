@@ -4,7 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       artifact_id:
-        description: "GitHub Actions artifact ID del proyecto twitch-vod-clip-agent"
+        description: "GitHub Actions artifact ID del proyecto twitch-vod-clip-agent con los MP4"
+        required: true
+        type: string
+
+      manifest_artifact_id:
+        description: "GitHub Actions artifact ID del proyecto twitch-vod-clip-agent con clips_manifest.json"
         required: true
         type: string
 
@@ -13,12 +18,15 @@ on:
         required: true
         type: string
 
+
 concurrency:
   group: twitch-tiktok-telegram-review
   cancel-in-progress: false
 
+
 permissions:
   contents: read
+
 
 jobs:
   external-clip:
@@ -57,6 +65,7 @@ jobs:
         with:
           python-version: "3.11"
 
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -73,6 +82,7 @@ jobs:
         env:
           SOURCE_REPOSITORY: KuraiMure57/twitch-vod-clip-agent
           ARTIFACT_ID: ${{ inputs.artifact_id }}
+          MANIFEST_ARTIFACT_ID: ${{ inputs.manifest_artifact_id }}
           CLIP_FILENAME: ${{ inputs.clip_filename }}
           GITHUB_TOKEN_CROSS_REPO: ${{ secrets.CROSS_REPO_TOKEN }}
 
@@ -89,8 +99,17 @@ jobs:
           echo "========================================"
 
           echo "Repositorio origen: ${SOURCE_REPOSITORY}"
-          echo "Artifact ID: ${ARTIFACT_ID}"
+          echo "Artifact de clips: ${ARTIFACT_ID}"
+          echo "Artifact del manifest: ${MANIFEST_ARTIFACT_ID}"
           echo "Archivo solicitado: ${CLIP_FILENAME}"
+
+
+          # --------------------------------------------------------
+          # DESCARGAR ARTIFACT DE LOS MP4
+          # --------------------------------------------------------
+
+          echo ""
+          echo "Descargando artifact de clips..."
 
           curl \
             --fail \
@@ -103,19 +122,22 @@ jobs:
             "https://api.github.com/repos/${SOURCE_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" \
             --output external_clip_artifact.zip
 
+
           mkdir -p external_clip_artifact
 
           unzip -q \
             external_clip_artifact.zip \
             -d external_clip_artifact
 
+
           echo ""
-          echo "Contenido del artifact:"
+          echo "Contenido del artifact de clips:"
 
           find external_clip_artifact \
             -maxdepth 3 \
             -type f \
             -print
+
 
           MATCHED_FILE="$(
             find external_clip_artifact \
@@ -125,25 +147,108 @@ jobs:
               -quit
           )"
 
+
           if [ -z "${MATCHED_FILE}" ]; then
             echo ""
             echo "ERROR: No se encontró ${CLIP_FILENAME} dentro del artifact."
             exit 1
           fi
 
+
           cp \
             "${MATCHED_FILE}" \
             twitch_clip.mp4
+
 
           if [ ! -s twitch_clip.mp4 ]; then
             echo "ERROR: twitch_clip.mp4 está vacío."
             exit 1
           fi
 
+
+          # --------------------------------------------------------
+          # DESCARGAR ARTIFACT DEL MANIFEST
+          # --------------------------------------------------------
+
           echo ""
-          echo "Clip externo preparado:"
+          echo "Descargando artifact del manifest..."
+
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN_CROSS_REPO}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${SOURCE_REPOSITORY}/actions/artifacts/${MANIFEST_ARTIFACT_ID}/zip" \
+            --output external_manifest_artifact.zip
+
+
+          mkdir -p external_manifest_artifact
+
+          unzip -q \
+            external_manifest_artifact.zip \
+            -d external_manifest_artifact
+
+
+          echo ""
+          echo "Contenido del artifact del manifest:"
+
+          find external_manifest_artifact \
+            -maxdepth 3 \
+            -type f \
+            -print
+
+
+          MANIFEST_FILE="$(
+            find external_manifest_artifact \
+              -type f \
+              -name "clips_manifest.json" \
+              -print \
+              -quit
+          )"
+
+
+          if [ -z "${MANIFEST_FILE}" ]; then
+            echo ""
+            echo "ERROR: No se encontró clips_manifest.json."
+            exit 1
+          fi
+
+
+          cp \
+            "${MANIFEST_FILE}" \
+            clips_manifest.json
+
+
+          if [ ! -s clips_manifest.json ]; then
+            echo "ERROR: clips_manifest.json está vacío."
+            exit 1
+          fi
+
+
+          echo ""
+          echo "Manifest preparado:"
+          ls -lh clips_manifest.json
+
+
+          echo ""
+          echo "========================================"
+          echo "MANIFEST RECIBIDO DE PROYECTO 2"
+          echo "========================================"
+
+          cat clips_manifest.json
+
+
+          echo ""
+          echo "========================================"
+          echo "CLIP EXTERNO PREPARADO"
+          echo "========================================"
 
           ls -lh twitch_clip.mp4
+
 
           echo ""
           echo "DURACIÓN REAL:"
@@ -156,6 +261,424 @@ jobs:
 
 
       # ============================================================
+      # OBTENER METADATA DE PROYECTO 2
+      # ============================================================
+
+      - name: Build metadata from Project 2
+        env:
+          CLIP_FILENAME: ${{ inputs.clip_filename }}
+
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+
+          clip_filename = os.environ["CLIP_FILENAME"]
+
+          manifest_path = Path(
+              "clips_manifest.json"
+          )
+
+          if not manifest_path.exists():
+              raise FileNotFoundError(
+                  "No existe clips_manifest.json."
+              )
+
+
+          with manifest_path.open(
+              "r",
+              encoding="utf-8",
+          ) as file:
+              manifest = json.load(file)
+
+
+          if not isinstance(
+              manifest,
+              dict,
+          ):
+              raise ValueError(
+                  "clips_manifest.json debe contener un objeto JSON."
+              )
+
+
+          clips = manifest.get(
+              "clips",
+              [],
+          )
+
+
+          if not isinstance(
+              clips,
+              list,
+          ):
+              raise ValueError(
+                  "El campo 'clips' del manifest debe ser una lista."
+              )
+
+
+          selected_clip = None
+
+
+          for clip in clips:
+
+              if not isinstance(
+                  clip,
+                  dict,
+              ):
+                  continue
+
+
+              file_value = str(
+                  clip.get(
+                      "file",
+                      "",
+                  )
+              )
+
+
+              file_name = Path(
+                  file_value
+              ).name
+
+
+              if file_name == clip_filename:
+
+                  selected_clip = clip
+                  break
+
+
+          if selected_clip is None:
+
+              raise ValueError(
+                  "No se encontró el clip solicitado "
+                  f"'{clip_filename}' en clips_manifest.json."
+              )
+
+
+          # ========================================================
+          # DATOS ORIGINALES DE PROYECTO 2
+          # ========================================================
+
+          title = str(
+              selected_clip.get(
+                  "title",
+                  "",
+              )
+          ).strip()
+
+
+          reason = str(
+              selected_clip.get(
+                  "reason",
+                  "",
+              )
+          ).strip()
+
+
+          category = str(
+              selected_clip.get(
+                  "category",
+                  "",
+              )
+          ).strip()
+
+
+          confidence = selected_clip.get(
+              "confidence"
+          )
+
+
+          score_value = selected_clip.get(
+              "score"
+          )
+
+
+          if not title:
+
+              raise ValueError(
+                  "El clip de Proyecto 2 no tiene título."
+              )
+
+
+          if score_value is None:
+
+              raise ValueError(
+                  "El clip de Proyecto 2 no tiene puntuación."
+              )
+
+
+          score_float = float(
+              score_value
+          )
+
+
+          if not 0 <= score_float <= 100:
+
+              raise ValueError(
+                  "La puntuación de Proyecto 2 está fuera "
+                  f"del rango 0-100: {score_float}"
+              )
+
+
+          # Si la puntuación es un número entero,
+          # la guardamos como entero para que Telegram
+          # muestre 88 en lugar de 88.0.
+
+          if score_float.is_integer():
+
+              score = int(
+                  score_float
+              )
+
+          else:
+
+              score = round(
+                  score_float,
+                  2,
+              )
+
+
+          # ========================================================
+          # DESCRIPCIÓN
+          # ========================================================
+          #
+          # Proyecto 2 genera "reason" como explicación del
+          # potencial del momento.
+          #
+          # Lo utilizamos como descripción para Telegram/TikTok.
+          # ========================================================
+
+          description = reason
+
+
+          if not description:
+
+              description = (
+                  f"Momento de categoría {category}."
+                  if category
+                  else "Momento destacado del directo."
+              )
+
+
+          # ========================================================
+          # HASHTAGS
+          # ========================================================
+
+          hashtags = [
+              "#Twitch",
+              "#TwitchClips",
+              "#TikTokGaming",
+              "#Gaming",
+          ]
+
+
+          category_lower = category.lower()
+
+
+          if category_lower in {
+              "fail",
+              "fallo",
+              "error",
+          }:
+
+              hashtags.append(
+                  "#Fail"
+              )
+
+
+          elif category_lower in {
+              "funny",
+              "gracioso",
+              "gracia",
+          }:
+
+              hashtags.append(
+                  "#Funny"
+              )
+
+
+          elif category_lower in {
+              "susto",
+              "scare",
+              "sorpresa",
+              "inesperado",
+          }:
+
+              hashtags.append(
+                  "#WTF"
+              )
+
+
+          # Eliminamos duplicados conservando el orden.
+
+          hashtags = list(
+              dict.fromkeys(
+                  hashtags
+              )
+          )
+
+
+          # ========================================================
+          # RECOMENDACIÓN
+          # ========================================================
+
+          if score >= 80:
+
+              recommendation = "create_clip"
+
+          elif score >= 60:
+
+              recommendation = "consider_clip"
+
+          elif score >= 40:
+
+              recommendation = "review"
+
+          else:
+
+              recommendation = "discard"
+
+
+          # ========================================================
+          # METADATA FINAL
+          # ========================================================
+
+          metadata = {
+              "language": "es",
+
+              "title": title,
+
+              "hook": "",
+
+              "description": description,
+
+              "hashtags": hashtags,
+
+              "moment_type": category,
+
+              "emotion": None,
+
+              "score": score,
+
+              "recommendation": recommendation,
+
+              "confidence": confidence,
+
+              "source": "twitch-vod-clip-agent",
+
+              "source_clip_filename": clip_filename,
+          }
+
+
+          with open(
+              "metadata.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+
+              json.dump(
+                  metadata,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+
+          # ========================================================
+          # CREAR SCORED_RESPONSE COMPATIBLE
+          # ========================================================
+          #
+          # No se utiliza para volver a puntuar.
+          #
+          # Lo dejamos como archivo informativo para mantener
+          # compatibilidad con los artifacts del flujo anterior.
+          # ========================================================
+
+          scored_response = {
+              "source": "twitch-vod-clip-agent",
+
+              "source_clip_filename": clip_filename,
+
+              "analysis": {
+                  "title": title,
+                  "description": description,
+                  "moment_type": category,
+              },
+
+              "scoring": {
+                  "score": score,
+                  "category": (
+                      "excellent"
+                      if score >= 80
+                      else "good"
+                      if score >= 60
+                      else "possible"
+                      if score >= 40
+                      else "weak"
+                  ),
+                  "recommendation": recommendation,
+                  "source": "twitch-vod-clip-agent",
+              },
+          }
+
+
+          with open(
+              "scored_response.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+
+              json.dump(
+                  scored_response,
+                  file,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+
+          print()
+          print("========================================")
+          print("METADATA DE PROYECTO 2 UTILIZADA")
+          print("========================================")
+          print(
+              f"Título: {title}"
+          )
+          print(
+              f"Descripción: {description}"
+          )
+          print(
+              f"Categoría: {category}"
+          )
+          print(
+              f"Puntuación: {score}/100"
+          )
+          print(
+              f"Confidence: {confidence}"
+          )
+          print(
+              f"Recommendation: {recommendation}"
+          )
+          print(
+              f"Fuente: twitch-vod-clip-agent"
+          )
+          print("========================================")
+          PY
+
+
+      - name: Show Project 2 metadata
+        run: |
+          echo "=============================="
+          echo "METADATA RECIBIDA DE PROYECTO 2"
+          echo "=============================="
+
+          cat metadata.json
+
+
+      # ============================================================
       # WHISPER
       # ============================================================
 
@@ -165,6 +688,7 @@ jobs:
             twitch_clip.mp4 \
             output.txt
 
+
       - name: Show Whisper output
         run: |
           echo "=============================="
@@ -172,6 +696,7 @@ jobs:
           echo "=============================="
 
           cat output.txt
+
 
       - name: Show Whisper JSON
         run: |
@@ -192,6 +717,7 @@ jobs:
             output.json \
             formatted_subtitles.json
 
+
       - name: Show formatted subtitles
         run: |
           cat formatted_subtitles.json
@@ -206,6 +732,7 @@ jobs:
           python src/subtitle_corrector.py \
             formatted_subtitles.json \
             corrected_subtitles.json
+
 
       - name: Show corrected subtitles
         run: |
@@ -228,7 +755,10 @@ jobs:
           ) as file:
               subtitles = json.load(file)
 
-          if not isinstance(subtitles, dict):
+          if not isinstance(
+              subtitles,
+              dict,
+          ):
               raise ValueError(
                   "corrected_subtitles.json debe ser un objeto JSON."
               )
@@ -238,7 +768,10 @@ jobs:
               [],
           )
 
-          if not isinstance(segments, list):
+          if not isinstance(
+              segments,
+              list,
+          ):
               raise ValueError(
                   "'segments' debe ser una lista."
               )
@@ -264,6 +797,7 @@ jobs:
               )
           PY
 
+
       - name: Show AI input
         run: |
           cat ai_input.json
@@ -271,6 +805,14 @@ jobs:
 
       # ============================================================
       # GEMINI
+      # ============================================================
+      #
+      # IMPORTANTE:
+      #
+      # Gemini sigue utilizándose para revisar/corregir
+      # la transcripción y preparar los subtítulos.
+      #
+      # NO se utiliza para decidir la puntuación del clip.
       # ============================================================
 
       - name: Analyze video with Gemini
@@ -282,6 +824,7 @@ jobs:
             twitch_clip.mp4 \
             ai_input.json \
             ai_response.json
+
 
       - name: Show AI response
         run: |
@@ -299,33 +842,87 @@ jobs:
 
 
       # ============================================================
-      # SCORE
+      # NO RECALCULAR SCORE
+      # ============================================================
+      #
+      # INTENCIONADAMENTE NO EJECUTAMOS:
+      #
+      # python src/scoring.py
+      #
+      # La puntuación válida ya viene de Proyecto 2.
       # ============================================================
 
-      - name: Calculate score
+      - name: Verify Project 2 score is preserved
         run: |
-          python src/scoring.py \
-            ai_response.json \
-            scored_response.json
+          python - <<'PY'
+          import json
 
-      - name: Show scored response
-        run: |
-          cat scored_response.json
+          with open(
+              "metadata.json",
+              "r",
+              encoding="utf-8",
+          ) as file:
+              metadata = json.load(file)
+
+          score = metadata.get(
+              "score"
+          )
+
+          title = metadata.get(
+              "title"
+          )
+
+          description = metadata.get(
+              "description"
+          )
 
 
-      # ============================================================
-      # METADATA
-      # ============================================================
+          if score is None:
+              raise ValueError(
+                  "metadata.json no contiene score."
+              )
 
-      - name: Generate clip metadata
-        run: |
-          python src/metadata_generator.py \
-            scored_response.json \
-            metadata.json
 
-      - name: Show metadata
-        run: |
-          cat metadata.json
+          if not title:
+              raise ValueError(
+                  "metadata.json no contiene title."
+              )
+
+
+          if not description:
+              raise ValueError(
+                  "metadata.json no contiene description."
+              )
+
+
+          print(
+              "========================================"
+          )
+
+          print(
+              "DATOS DE PROYECTO 2 CONSERVADOS"
+          )
+
+          print(
+              "========================================"
+          )
+
+          print(
+              f"Título: {title}"
+          )
+
+          print(
+              f"Descripción: {description}"
+          )
+
+          print(
+              f"Puntuación: {score}/100"
+          )
+
+          print(
+              "========================================"
+          )
+          PY
 
 
       # ============================================================
@@ -338,6 +935,7 @@ jobs:
             ai_response.json \
             corrected_subtitles.json \
             final_subtitles.txt
+
 
       - name: Show final subtitles
         run: |
@@ -354,6 +952,7 @@ jobs:
             twitch_clip.mp4 \
             final_subtitles.txt \
             final_tiktok.mp4
+
 
       - name: Check final video
         run: |
@@ -385,6 +984,7 @@ jobs:
             create \
             metadata.json \
             review_state.json
+
 
       - name: Show review state
         run: |
@@ -433,5 +1033,6 @@ jobs:
             final_subtitles.txt
             ai_response.json
             scored_response.json
+            clips_manifest.json
 
           if-no-files-found: ignore
