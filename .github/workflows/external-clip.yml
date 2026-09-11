@@ -15,7 +15,7 @@ on:
         description: "Nombre del MP4 dentro del artifact"
         required: true
         type: string
-  # CAMBIO AQUÍ: Añadimos el receptor automático para escuchar al Proyecto 2
+
   repository_dispatch:
     types: [vod_clips_approved]
 
@@ -77,7 +77,6 @@ jobs:
       # ============================================================
 
       - name: Download approved clip artifact
-        # CAMBIO AQUÍ: Hacemos que las variables detecten si la ejecución es manual o automática
         env:
           SOURCE_REPOSITORY: KuraiMure57/twitch-vod-clip-agent
           ARTIFACT_ID: ${{ github.event.client_payload.artifact_id || inputs.artifact_id }}
@@ -90,6 +89,21 @@ jobs:
 
           if [ -z "${GITHUB_TOKEN_CROSS_REPO:-}" ]; then
             echo "ERROR: Falta el secret CROSS_REPO_TOKEN."
+            exit 1
+          fi
+
+          if [ -z "${ARTIFACT_ID:-}" ]; then
+            echo "ERROR: Falta ARTIFACT_ID."
+            exit 1
+          fi
+
+          if [ -z "${MANIFEST_ARTIFACT_ID:-}" ]; then
+            echo "ERROR: Falta MANIFEST_ARTIFACT_ID."
+            exit 1
+          fi
+
+          if [ -z "${CLIP_FILENAME:-}" ]; then
+            echo "ERROR: Falta CLIP_FILENAME."
             exit 1
           fi
 
@@ -138,6 +152,26 @@ jobs:
             -print
 
 
+          # --------------------------------------------------------
+          # BUSCAR EL CLIP
+          # --------------------------------------------------------
+          #
+          # Primero intentamos encontrar exactamente el nombre
+          # recibido desde Proyecto 2.
+          #
+          # Ejemplo:
+          #
+          #   2864024809_clip_2.mp4
+          #
+          # Si no existe, extraemos el índice "2" y buscamos:
+          #
+          #   clip_02_*.mp4
+          #
+          # Esto permite resolver la diferencia entre el nombre
+          # utilizado por Telegram Approval y el nombre real
+          # del archivo generado por Proyecto 2.
+          # --------------------------------------------------------
+
           MATCHED_FILE="$(
             find external_clip_artifact \
               -type f \
@@ -147,12 +181,111 @@ jobs:
           )"
 
 
-          if [ -z "${MATCHED_FILE}" ]; then
+          if [ -n "${MATCHED_FILE}" ]; then
+
             echo ""
-            echo "ERROR: No se encontró ${CLIP_FILENAME} dentro del artifact."
-            exit 1
+            echo "Clip encontrado por nombre exacto:"
+            echo "${MATCHED_FILE}"
+
+          else
+
+            echo ""
+            echo "No se encontró el nombre exacto:"
+            echo "${CLIP_FILENAME}"
+
+            CLIP_INDEX=""
+
+            # Acepta ejemplos como:
+            #
+            # 2864024809_clip_2.mp4
+            # 2864024809_clip_02.mp4
+            # clip_2.mp4
+            # clip_02.mp4
+
+            if [[ "${CLIP_FILENAME}" =~ [Cc]lip[_-]?0*([0-9]+)\.mp4$ ]]; then
+              CLIP_INDEX="${BASH_REMATCH[1]}"
+            fi
+
+
+            if [ -z "${CLIP_INDEX}" ]; then
+              echo ""
+              echo "ERROR: No se pudo determinar el número del clip."
+              echo "Archivo recibido: ${CLIP_FILENAME}"
+              exit 1
+            fi
+
+
+            echo ""
+            echo "Índice del clip detectado: ${CLIP_INDEX}"
+
+
+            CLIP_INDEX_PADDED="$(
+              printf "%02d" "${CLIP_INDEX}"
+            )"
+
+
+            echo ""
+            echo "Buscando:"
+            echo "clip_${CLIP_INDEX_PADDED}_*.mp4"
+
+
+            MATCHED_FILE="$(
+              find external_clip_artifact \
+                -type f \
+                -name "clip_${CLIP_INDEX_PADDED}_*.mp4" \
+                -print \
+                -quit
+            )"
+
+
+            if [ -z "${MATCHED_FILE}" ]; then
+
+              echo ""
+              echo "ERROR: No se encontró el clip #${CLIP_INDEX}."
+              echo ""
+              echo "Archivos disponibles:"
+
+              find external_clip_artifact \
+                -type f \
+                -name "*.mp4" \
+                -print
+
+              exit 1
+
+            fi
+
+
+            echo ""
+            echo "Clip encontrado por índice:"
+            echo "${MATCHED_FILE}"
+
           fi
 
+
+          # --------------------------------------------------------
+          # GUARDAR EL NOMBRE REAL RESUELTO
+          # --------------------------------------------------------
+          #
+          # Este valor se utilizará posteriormente para localizar
+          # exactamente el mismo clip dentro de clips_manifest.json.
+          # --------------------------------------------------------
+
+          RESOLVED_CLIP_FILENAME="$(
+            basename "${MATCHED_FILE}"
+          )"
+
+
+          echo ""
+          echo "Nombre real del clip:"
+          echo "${RESOLVED_CLIP_FILENAME}"
+
+
+          echo "RESOLVED_CLIP_FILENAME=${RESOLVED_CLIP_FILENAME}" >> "$GITHUB_ENV"
+
+
+          # --------------------------------------------------------
+          # COPIAR CLIP A LA RUTA UTILIZADA POR PROYECTO 1
+          # --------------------------------------------------------
 
           cp \
             "${MATCHED_FILE}" \
@@ -264,9 +397,9 @@ jobs:
       # ============================================================
 
       - name: Build metadata from Project 2
-        # CAMBIO AQUÍ: También adaptamos el nombre del clip para que sea elástico
         env:
           CLIP_FILENAME: ${{ github.event.client_payload.clip_filename || inputs.clip_filename }}
+          RESOLVED_CLIP_FILENAME: ${{ env.RESOLVED_CLIP_FILENAME }}
 
         run: |
           set -euo pipefail
@@ -274,14 +407,22 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
 
 
-          clip_filename = os.environ["CLIP_FILENAME"]
+          requested_clip_filename = os.environ["CLIP_FILENAME"]
+
+          resolved_clip_filename = os.environ.get(
+              "RESOLVED_CLIP_FILENAME",
+              "",
+          ).strip()
+
 
           manifest_path = Path(
               "clips_manifest.json"
           )
+
 
           if not manifest_path.exists():
               raise FileNotFoundError(
@@ -320,42 +461,217 @@ jobs:
               )
 
 
+          # ========================================================
+          # BUSCAR CLIP EN EL MANIFEST
+          # ========================================================
+          #
+          # Orden de prioridad:
+          #
+          # 1. Nombre real encontrado dentro del artifact.
+          # 2. Nombre solicitado originalmente.
+          # 3. Índice del clip.
+          #
+          # Esto evita que el nombre generado por Telegram Approval
+          # provoque un fallo al buscar los metadatos.
+          # ========================================================
+
           selected_clip = None
+          selected_manifest_filename = ""
 
 
-          for clip in clips:
+          # --------------------------------------------------------
+          # 1. BUSCAR POR NOMBRE REAL RESUELTO
+          # --------------------------------------------------------
 
-              if not isinstance(
-                  clip,
-                  dict,
-              ):
-                  continue
+          if resolved_clip_filename:
+
+              for clip in clips:
+
+                  if not isinstance(
+                      clip,
+                      dict,
+                  ):
+                      continue
 
 
-              file_value = str(
-                  clip.get(
-                      "file",
-                      "",
+                  file_value = str(
+                      clip.get(
+                          "file",
+                          "",
+                      )
                   )
-              )
 
 
-              file_name = Path(
-                  file_value
-              ).name
+                  file_name = Path(
+                      file_value
+                  ).name
 
 
-              if file_name == clip_filename:
+                  if file_name == resolved_clip_filename:
 
-                  selected_clip = clip
-                  break
+                      selected_clip = clip
+                      selected_manifest_filename = file_name
+                      break
 
+
+          # --------------------------------------------------------
+          # 2. BUSCAR POR NOMBRE SOLICITADO
+          # --------------------------------------------------------
 
           if selected_clip is None:
 
+              for clip in clips:
+
+                  if not isinstance(
+                      clip,
+                      dict,
+                  ):
+                      continue
+
+
+                  file_value = str(
+                      clip.get(
+                          "file",
+                          "",
+                      )
+                  )
+
+
+                  file_name = Path(
+                      file_value
+                  ).name
+
+
+                  if file_name == requested_clip_filename:
+
+                      selected_clip = clip
+                      selected_manifest_filename = file_name
+                      break
+
+
+          # --------------------------------------------------------
+          # 3. BUSCAR POR ÍNDICE
+          # --------------------------------------------------------
+          #
+          # Ejemplo:
+          #
+          # requested:
+          #   2864024809_clip_2.mp4
+          #
+          # manifest:
+          #   clip_02_3227.00_3255.00_score_72_comentario.mp4
+          #
+          # Ambos representan el clip número 2.
+          # --------------------------------------------------------
+
+          if selected_clip is None:
+
+              clip_index = None
+
+
+              match = re.search(
+                  r"[Cc]lip[_-]?0*(\d+)\.mp4$",
+                  requested_clip_filename,
+              )
+
+
+              if match:
+
+                  clip_index = int(
+                      match.group(1)
+                  )
+
+
+              if clip_index is not None:
+
+                  for clip in clips:
+
+                      if not isinstance(
+                          clip,
+                          dict,
+                      ):
+                          continue
+
+
+                      file_value = str(
+                          clip.get(
+                              "file",
+                              "",
+                          )
+                      )
+
+
+                      file_name = Path(
+                          file_value
+                      ).name
+
+
+                      manifest_match = re.search(
+                          r"^[Cc]lip[_-]?0*(\d+)_",
+                          file_name,
+                      )
+
+
+                      if manifest_match is None:
+                          continue
+
+
+                      manifest_index = int(
+                          manifest_match.group(1)
+                      )
+
+
+                      if manifest_index == clip_index:
+
+                          selected_clip = clip
+                          selected_manifest_filename = file_name
+                          break
+
+
+          # --------------------------------------------------------
+          # SI SIGUE SIN ENCONTRARSE
+          # --------------------------------------------------------
+
+          if selected_clip is None:
+
+              print()
+              print("========================================")
+              print("ERROR BUSCANDO CLIP EN MANIFEST")
+              print("========================================")
+
+              print(
+                  f"Nombre solicitado: {requested_clip_filename}"
+              )
+
+              print(
+                  f"Nombre resuelto: {resolved_clip_filename}"
+              )
+
+              print()
+              print("Archivos disponibles en manifest:")
+
+              for clip in clips:
+
+                  if not isinstance(
+                      clip,
+                      dict,
+                  ):
+                      continue
+
+                  file_value = str(
+                      clip.get(
+                          "file",
+                          "",
+                      )
+                  )
+
+                  print(
+                      f" - {Path(file_value).name}"
+                  )
+
               raise ValueError(
-                  "No se encontró el clip solicitado "
-                  f"'{clip_filename}' en clips_manifest.json."
+                  "No se pudo localizar el clip solicitado "
+                  "en clips_manifest.json."
               )
 
 
@@ -425,8 +741,7 @@ jobs:
 
 
           # Si la puntuación es un número entero,
-          # la guardamos como entero para que Telegram
-          # muestre 88 en lugar de 88.0.
+          # la guardamos como entero.
 
           if score_float.is_integer():
 
@@ -444,12 +759,6 @@ jobs:
 
           # ========================================================
           # DESCRIPCIÓN
-          # ========================================================
-          #
-          # Proyecto 2 genera "reason" como explicación del
-          # potencial del momento.
-          #
-          # Lo utilizamos como descripción para Telegram/TikTok.
           # ========================================================
 
           description = reason
@@ -570,7 +879,9 @@ jobs:
 
               "source": "twitch-vod-clip-agent",
 
-              "source_clip_filename": clip_filename,
+              "source_clip_filename": selected_manifest_filename,
+
+              "requested_clip_filename": requested_clip_filename,
           }
 
 
@@ -592,16 +903,18 @@ jobs:
           # CREAR SCORED_RESPONSE COMPATIBLE
           # ========================================================
           #
-          # No se utiliza para volver a puntuar.
+          # NO se utiliza para volver a puntuar.
           #
-          # Lo dejamos como archivo informativo para mantener
-          # compatibilidad con los artifacts del flujo anterior.
+          # Solamente mantenemos este archivo por compatibilidad
+          # con el flujo existente.
           # ========================================================
 
           scored_response = {
               "source": "twitch-vod-clip-agent",
 
-              "source_clip_filename": clip_filename,
+              "source_clip_filename": selected_manifest_filename,
+
+              "requested_clip_filename": requested_clip_filename,
 
               "analysis": {
                   "title": title,
@@ -644,27 +957,47 @@ jobs:
           print("========================================")
           print("METADATA DE PROYECTO 2 UTILIZADA")
           print("========================================")
+
+          print(
+              f"Nombre solicitado: {requested_clip_filename}"
+          )
+
+          print(
+              f"Nombre resuelto: {resolved_clip_filename}"
+          )
+
+          print(
+              f"Nombre en manifest: {selected_manifest_filename}"
+          )
+
           print(
               f"Título: {title}"
           )
+
           print(
               f"Descripción: {description}"
           )
+
           print(
               f"Categoría: {category}"
           )
+
           print(
               f"Puntuación: {score}/100"
           )
+
           print(
               f"Confidence: {confidence}"
           )
+
           print(
               f"Recommendation: {recommendation}"
           )
+
           print(
-              f"Fuente: twitch-vod-clip-agent"
+              "Fuente: twitch-vod-clip-agent"
           )
+
           print("========================================")
           PY
 
@@ -806,8 +1139,6 @@ jobs:
       # ============================================================
       # GEMINI
       # ============================================================
-      #
-      # IMPORTANTE:
       #
       # Gemini sigue utilizándose para revisar/corregir
       # la transcripción y preparar los subtítulos.
