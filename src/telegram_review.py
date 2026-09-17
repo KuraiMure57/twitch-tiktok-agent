@@ -273,61 +273,73 @@ def review_keyboard():
         ]
     }
 
+def send_video(token, chat_id, video_path, caption=None):
+    """
+    Envía un vídeo a un chat de Telegram. Si el vídeo supera los 50 MB,
+    lo envía automáticamente como un documento plano para saltarse el límite.
+    """
+    import os
+    import urllib.request
+    import json
+    
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"No se encontró el vídeo en la ruta: {video_path}")
+        
+    file_size = os.path.getsize(video_path)
+    
+    # Si pesa más de 50 MB, cambiamos el método de la API a sendDocument para aceptar hasta 2GB
+    if file_size > 50 * 1024 * 1024:
+        print(f"⚠️ El vídeo pesa {file_size / (1024*1024):.2f} MB (Más del límite de 50MB). Enviando como documento...")
+        url = f"https://api.telegram.org/bot{token}/sendDocument"
+        file_field = "document"
+    else:
+        url = f"https://api.telegram.org/bot{token}/sendVideo"
+        file_field = "video"
 
-def send_video(
-    token,
-    chat_id,
-    video_path,
-    metadata,
-):
-
-    if not video_path.exists():
-
-        raise FileNotFoundError(
-            f"No existe el vídeo: {video_path}"
-        )
-
-    size_mb = (
-        video_path.stat().st_size
-        / (1024 * 1024)
-    )
-
-    if size_mb > 50:
-
-        raise ValueError(
-            f"El vídeo pesa {size_mb:.2f} MB. "
-            "Telegram limita sendVideo a 50 MB."
-        )
-
-    with video_path.open(
-        "rb"
-    ) as video_file:
-
-        result = api_call(
-            token,
-            "sendVideo",
-            data={
-                "chat_id": chat_id,
-                "caption": build_caption(
-                    metadata
-                ),
-                "supports_streaming": "true",
-                "reply_markup": json.dumps(
-                    review_keyboard(),
-                    ensure_ascii=False,
-                ),
-            },
-            files={
-                "video": (
-                    video_path.name,
-                    video_file,
-                    "video/mp4",
-                )
-            },
-        )
-
-    return result["message_id"]
-
+    # Construcción de la petición Multipart/form-data nativa
+    boundary = "----TelegramWebhookBoundary" + str(time.time())
+    parts = []
+    
+    parts.append(f"--{boundary}".encode('utf-8'))
+    parts.append(f'Content-Disposition: form-data; name="chat_id"'.encode('utf-8'))
+    parts.append('\r\n'.encode('utf-8'))
+    parts.append(str(chat_id).encode('utf-8'))
+    parts.append('\r\n'.encode('utf-8'))
+    
+    if caption:
+        parts.append(f"--{boundary}".encode('utf-8'))
+        parts.append(f'Content-Disposition: form-data; name="caption"'.encode('utf-8'))
+        parts.append('\r\n'.encode('utf-8'))
+        parts.append(caption.encode('utf-8'))
+        parts.append('\r\n'.encode('utf-8'))
+        
+    parts.append(f"--{boundary}".encode('utf-8'))
+    parts.append(f'Content-Disposition: form-data; name="{file_field}"; filename="{os.path.basename(video_path)}"'.encode('utf-8'))
+    parts.append('\r\n'.encode('utf-8'))
+    
+    with open(video_path, 'rb') as f:
+        parts.append(f.read())
+        
+    parts.append('\r\n'.encode('utf-8'))
+    parts.append(f"--{boundary}--".encode('utf-8'))
+    parts.append('\r\n'.encode('utf-8'))
+    
+    body = b''.join(parts)
+    
+    req = urllib.request.Request(url, data=body)
+    req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
+    req.add_header('Content-Length', str(len(body)))
+    
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            if res_data.get("ok"):
+                return res_data["result"]["message_id"]
+            else:
+                raise ValueError(f"Error de Telegram: {res_data.get('description')}")
+    except Exception as e:
+        print(f"❌ Falló el envío multimedia: {e}")
+        raise e
 
 def answer_callback(
     token,
