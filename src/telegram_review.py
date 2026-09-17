@@ -291,8 +291,14 @@ def send_video(token, chat_id, video_path, caption=None):
     # Si pesa más de 50 MB, cambiamos el método de la API a sendDocument para aceptar hasta 2GB
     if file_size > 50 * 1024 * 1024:
         print(f"⚠️ El vídeo pesa {file_size / (1024*1024):.2f} MB (Más del límite de 50MB). Enviando como documento...")
-        url = f"https://api.telegram.org/bot{token}/sendDocument"
+    
+        # ◄— ¡AÑADE ESTAS DOS LÍNEAS AQUÍ ABAJO PARA QUE TE AVISE AL INSTANTE!
+        aviso_texto = f"📢 [Proyecto 1] Alerta: El clip actual pesa {file_size / (1024*1024):.2f} MB. Supera el límite de reproducción multimedia de Telegram (50 MB), por lo que se subirá a continuación en formato de Archivo Documento. Por favor, espere a que termine la carga completa del flujo."
+        send_telegram_message(aviso_texto) # Usa la función de mensajería para enviártelo al chat
+    
+        url = f"https://telegram.org{token}/sendDocument"
         file_field = "document"
+
     else:
         url = f"https://api.telegram.org/bot{token}/sendVideo"
         file_field = "video"
