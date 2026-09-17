@@ -281,6 +281,7 @@ def send_video(token, chat_id, video_path, caption=None):
     import os
     import urllib.request
     import json
+    import time
     
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"No se encontró el vídeo en la ruta: {video_path}")
