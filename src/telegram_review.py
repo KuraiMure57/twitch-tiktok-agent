@@ -275,8 +275,8 @@ def review_keyboard():
 
 def send_video(token, chat_id, video_path, caption=None):
     """
-    Envía un vídeo a un chat de Telegram. Si el vídeo supera los 50 MB,
-    lo envía automáticamente como un documento plano para saltarse el límite.
+    Envía el vídeo editado final a Telegram. Si supera los 50 MB,
+    lo conmuta automáticamente a sendDocument para evitar que falle el pipeline.
     """
     import os
     import urllib.request
@@ -284,26 +284,19 @@ def send_video(token, chat_id, video_path, caption=None):
     import time
     
     if not os.path.exists(video_path):
-        raise FileNotFoundError(f"No se encontró el vídeo en la ruta: {video_path}")
+        raise FileNotFoundError(f"No se encontró el vídeo en: {video_path}")
         
     file_size = os.path.getsize(video_path)
     
-    # Si pesa más de 50 MB, cambiamos el método de la API a sendDocument para aceptar hasta 2GB
+    # Parche de seguridad para clips pesados editados
     if file_size > 50 * 1024 * 1024:
-        print(f"⚠️ El vídeo pesa {file_size / (1024*1024):.2f} MB (Más del límite de 50MB). Enviando como documento...")
-    
-        # ◄— ¡AÑADE ESTAS DOS LÍNEAS AQUÍ ABAJO PARA QUE TE AVISE AL INSTANTE!
-        aviso_texto = f"📢 [Proyecto 1] Alerta: El clip actual pesa {file_size / (1024*1024):.2f} MB. Supera el límite de reproducción multimedia de Telegram (50 MB), por lo que se subirá a continuación en formato de Archivo Documento. Por favor, espere a que termine la carga completa del flujo."
-        send_telegram_message(aviso_texto) # Usa la función de mensajería para enviártelo al chat
-    
+        print(f"⚠️ El vídeo final pesa {file_size / (1024*1024):.2f} MB. Usando sendDocument...")
         url = f"https://telegram.org{token}/sendDocument"
         file_field = "document"
-
     else:
-        url = f"https://api.telegram.org/bot{token}/sendVideo"
+        url = f"https://telegram.org{token}/sendVideo"
         file_field = "video"
 
-    # Construcción de la petición Multipart/form-data nativa
     boundary = "----TelegramWebhookBoundary" + str(time.time())
     parts = []
     
@@ -345,7 +338,7 @@ def send_video(token, chat_id, video_path, caption=None):
             else:
                 raise ValueError(f"Error de Telegram: {res_data.get('description')}")
     except Exception as e:
-        print(f"❌ Falló el envío multimedia: {e}")
+        print(f"❌ Error en envío multimedia final: {e}")
         raise e
 
 def answer_callback(
