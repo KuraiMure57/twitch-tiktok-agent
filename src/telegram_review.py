@@ -308,7 +308,7 @@ def send_video(token, chat_id, video_path, metadata):
     
     if caption:
         parts.append(f"--{boundary}".encode('utf-8'))
-        parts.append(f'Content-Disposition: form-data; name="caption"'.encode('utf-8'))
+        parts.append(f'Content-Disposition: form-data; name="{file_field_name}"; filename="{os.path.basename(video_path)}"'.encode('utf-8'))
         parts.append('\r\n'.encode('utf-8'))
         parts.append(caption.encode('utf-8'))
         parts.append('\r\n'.encode('utf-8'))
