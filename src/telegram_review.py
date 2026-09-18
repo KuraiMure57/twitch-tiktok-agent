@@ -287,15 +287,15 @@ def send_video(token, chat_id, video_path, caption=None):
         raise FileNotFoundError(f"No se encontró el vídeo en: {video_path}")
         
     file_size = os.path.getsize(video_path)
-    
-    # Parche de seguridad para clips pesados editados
     if file_size > 50 * 1024 * 1024:
-        print(f"⚠️ El vídeo final pesa {file_size / (1024*1024):.2f} MB. Usando sendDocument...")
-        url = f"https://telegram.org{token}/sendDocument"
-        file_field = "document"
+        print(f"⚠️ El vídeo pesa {file_size / (1024*1024):.2f} MB. Usando sendDocument...")
+        method = "sendDocument"
+        # Cambiamos dinámicamente el nombre del campo binario para la API de Telegram
+        file_field_name = "document" 
     else:
-        url = f"https://telegram.org{token}/sendVideo"
-        file_field = "video"
+        method = "sendVideo"
+        file_field_name = "video"
+
 
     boundary = "----TelegramWebhookBoundary" + str(time.time())
     parts = []
