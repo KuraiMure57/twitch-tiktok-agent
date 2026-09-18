@@ -273,28 +273,28 @@ def review_keyboard():
         ]
     }
 
-def send_video(token, chat_id, video_path, caption=None):
+def send_video(token, chat_id, video_path, metadata):
     """
     Envía el vídeo editado final a Telegram. Si supera los 50 MB,
     lo conmuta automáticamente a sendDocument para evitar que falle el pipeline.
     """
-    import os
-    import urllib.request
-    import json
-    import time
-    
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"No se encontró el vídeo en: {video_path}")
         
     file_size = os.path.getsize(video_path)
+    caption = build_caption(metadata)
+    
     if file_size > 50 * 1024 * 1024:
-        print(f"⚠️ El vídeo pesa {file_size / (1024*1024):.2f} MB. Usando sendDocument...")
         method = "sendDocument"
-        # Cambiamos dinámicamente el nombre del campo binario para la API de Telegram
-        file_field_name = "document" 
+        file_field_name = "document"
     else:
         method = "sendVideo"
         file_field_name = "video"
+
+    with open(video_path, 'rb') as f:
+        file_content = f.read()
+        
+    url = f"https://telegram.org{token}/{method}"
 
 
     boundary = "----TelegramWebhookBoundary" + str(time.time())
