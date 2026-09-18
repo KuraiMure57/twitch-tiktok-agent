@@ -11,7 +11,6 @@ import requests
 
 
 POLL_TIMEOUT_SECONDS = 20
-
 DEFAULT_SPEAKER = "kuraimure"
 
 
@@ -43,9 +42,13 @@ class TelegramError(RuntimeError):
     pass
 
 
+# ============================================================
+# SPEAKERS
+# ============================================================
+
 def normalize_speaker(speaker):
     """
-    Convierte los atajos:
+    Convierte:
 
         @1 -> kuraimure
         @2 -> speaker_2
@@ -78,21 +81,16 @@ def normalize_speaker(speaker):
 
 def speaker_to_alias(speaker):
     """
-    Convierte un speaker interno a su alias corto.
+    Convierte un speaker interno a su alias.
 
         kuraimure -> @1
         speaker_2 -> @2
-        speaker_3 -> @3
         ...
-
-    Se utiliza principalmente para mostrar información
-    más sencilla al usuario.
     """
 
     speaker = normalize_speaker(speaker)
 
     for alias, real_speaker in SPEAKER_ALIASES.items():
-
         if real_speaker == speaker:
             return f"@{alias}"
 
@@ -101,7 +99,7 @@ def speaker_to_alias(speaker):
 
 def speaker_display_name(speaker):
     """
-    Devuelve un nombre amigable para mostrar.
+    Devuelve un nombre amigable.
     """
 
     speaker = normalize_speaker(speaker)
@@ -110,35 +108,30 @@ def speaker_display_name(speaker):
         return "Kurai (kuraimure) → negro"
 
     if speaker.startswith("speaker_"):
-
-        number = speaker.replace(
-            "speaker_",
-            "",
-        )
-
+        number = speaker.replace("speaker_", "")
         return f"Speaker {number}"
 
     return speaker
 
 
-def api_call(token, method, data=None, files=None):
+# ============================================================
+# TELEGRAM API
+# ============================================================
 
+def api_call(token, method, data=None, files=None):
     url = (
         f"https://api.telegram.org/bot"
         f"{token}/{method}"
     )
 
     if files:
-
         response = requests.post(
             url,
             data=data,
             files=files,
             timeout=120,
         )
-
     else:
-
         response = requests.post(
             url,
             json=data or {},
@@ -146,7 +139,6 @@ def api_call(token, method, data=None, files=None):
         )
 
     if not response.ok:
-
         print("RESPUESTA DE TELEGRAM:")
         print(response.text)
 
@@ -158,7 +150,6 @@ def api_call(token, method, data=None, files=None):
     payload = response.json()
 
     if not payload.get("ok"):
-
         raise TelegramError(
             f"Telegram API error in {method}: "
             f"{payload}"
@@ -168,7 +159,6 @@ def api_call(token, method, data=None, files=None):
 
 
 def clear_pending_updates(token):
-
     updates = api_call(
         token,
         "getUpdates",
@@ -188,8 +178,11 @@ def clear_pending_updates(token):
     ) + 1
 
 
-def build_caption(metadata):
+# ============================================================
+# MENSAJES
+# ============================================================
 
+def build_caption(metadata):
     title = metadata.get(
         "title",
         "Clip para revisión",
@@ -221,27 +214,23 @@ def build_caption(metadata):
     ]
 
     if hook:
-
         lines.append(
             f"🎯 Hook: {hook}"
         )
 
     if description:
-
         lines.extend([
             "",
             f"📝 Descripción: {description}",
         ])
 
     if score is not None:
-
         lines.extend([
             "",
             f"⭐ Puntuación: {score}/100",
         ])
 
     if hashtags:
-
         lines.extend([
             "",
             " ".join(hashtags),
@@ -251,7 +240,6 @@ def build_caption(metadata):
 
 
 def review_keyboard():
-
     return {
         "inline_keyboard": [
             [
@@ -273,17 +261,34 @@ def review_keyboard():
         ]
     }
 
+
+# ============================================================
+# ENVÍO DEL VÍDEO
+# ============================================================
+
 def send_video(token, chat_id, video_path, metadata):
     """
-    Envía el vídeo editado final a Telegram. Si supera los 50 MB,
-    lo conmuta automáticamente a sendDocument para evitar que falle el pipeline.
+    Envía el vídeo final a Telegram.
+
+    Hasta 50 MB:
+        sendVideo
+
+    Más de 50 MB:
+        sendDocument
+
+    Se utiliza requests directamente mediante api_call()
+    para que Telegram reciba correctamente el archivo.
     """
-    if not os.path.exists(video_path):
-        raise FileNotFoundError(f"No se encontró el vídeo en: {video_path}")
-        
-    file_size = os.path.getsize(video_path)
-    caption = build_caption(metadata)
-    
+
+    video_path = Path(video_path)
+
+    if not video_path.exists():
+        raise FileNotFoundError(
+            f"No se encontró el vídeo en: {video_path}"
+        )
+
+    file_size = video_path.stat().st_size
+
     if file_size > 50 * 1024 * 1024:
         method = "sendDocument"
         file_field_name = "document"
@@ -291,62 +296,46 @@ def send_video(token, chat_id, video_path, metadata):
         method = "sendVideo"
         file_field_name = "video"
 
-    with open(video_path, 'rb') as f:
-        file_content = f.read()
-        
-    url = f"https://telegram.org{token}/{method}"
+    data = {
+        "chat_id": str(chat_id),
+        "caption": build_caption(metadata),
+        "reply_markup": json.dumps(
+            review_keyboard(),
+            ensure_ascii=False,
+        ),
+    }
 
+    if method == "sendVideo":
+        data["supports_streaming"] = "true"
 
-    boundary = "----TelegramWebhookBoundary" + str(time.time())
-    parts = []
-    
-    parts.append(f"--{boundary}".encode('utf-8'))
-    parts.append(f'Content-Disposition: form-data; name="chat_id"'.encode('utf-8'))
-    parts.append('\r\n'.encode('utf-8'))
-    parts.append(str(chat_id).encode('utf-8'))
-    parts.append('\r\n'.encode('utf-8'))
-    
-    if caption:
-        parts.append(f"--{boundary}".encode('utf-8'))
-        parts.append(f'Content-Disposition: form-data; name="{file_field_name}"; filename="{os.path.basename(video_path)}"'.encode('utf-8'))
-        parts.append('\r\n'.encode('utf-8'))
-        parts.append(caption.encode('utf-8'))
-        parts.append('\r\n'.encode('utf-8'))
-        
-    parts.append(f"--{boundary}".encode('utf-8'))
-    parts.append(f'Content-Disposition: form-data; name="{file_field}"; filename="{os.path.basename(video_path)}"'.encode('utf-8'))
-    parts.append('\r\n'.encode('utf-8'))
-    
-    with open(video_path, 'rb') as f:
-        parts.append(f.read())
-        
-    parts.append('\r\n'.encode('utf-8'))
-    parts.append(f"--{boundary}--".encode('utf-8'))
-    parts.append('\r\n'.encode('utf-8'))
-    
-    body = b''.join(parts)
-    
-    req = urllib.request.Request(url, data=body)
-    req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
-    req.add_header('Content-Length', str(len(body)))
-    
-    try:
-        with urllib.request.urlopen(req, timeout=60) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            if res_data.get("ok"):
-                return res_data["result"]["message_id"]
-            else:
-                raise ValueError(f"Error de Telegram: {res_data.get('description')}")
-    except Exception as e:
-        print(f"❌ Error en envío multimedia final: {e}")
-        raise e
+    print(
+        f"Enviando vídeo a Telegram: "
+        f"{video_path.name} "
+        f"({file_size / (1024 * 1024):.2f} MB)"
+    )
+
+    with video_path.open("rb") as video_file:
+        result = api_call(
+            token,
+            method,
+            data=data,
+            files={
+                file_field_name: (
+                    video_path.name,
+                    video_file,
+                    "video/mp4",
+                )
+            },
+        )
+
+    return result["message_id"]
+
 
 def answer_callback(
     token,
     callback_id,
     text,
 ):
-
     api_call(
         token,
         "answerCallbackQuery",
@@ -363,7 +352,6 @@ def edit_review_message(
     message_id,
     caption,
 ):
-
     api_call(
         token,
         "editMessageCaption",
@@ -385,7 +373,6 @@ def send_message(
     chat_id,
     text,
 ):
-
     api_call(
         token,
         "sendMessage",
@@ -395,6 +382,10 @@ def send_message(
         },
     )
 
+
+# ============================================================
+# SUBTÍTULOS
+# ============================================================
 
 def read_subtitles(path):
     """
@@ -409,8 +400,9 @@ def read_subtitles(path):
         start|end|text
     """
 
-    if not path.exists():
+    path = Path(path)
 
+    if not path.exists():
         raise FileNotFoundError(
             f"No existe el archivo de subtítulos: {path}"
         )
@@ -423,19 +415,14 @@ def read_subtitles(path):
     ) as file:
 
         for line in file:
-
             line = line.rstrip("\n")
 
             if not line.strip():
                 continue
 
-            parts = line.split(
-                "|",
-                3,
-            )
+            parts = line.split("|", 3)
 
             if len(parts) == 4:
-
                 start, end, speaker, text = parts
 
                 speaker = normalize_speaker(
@@ -443,22 +430,20 @@ def read_subtitles(path):
                 )
 
             elif len(parts) == 3:
-
                 start, end, text = parts
 
                 speaker = DEFAULT_SPEAKER
 
             else:
-
                 raise ValueError(
                     f"Línea de subtítulo no válida: {line}"
                 )
 
             segments.append({
-                "start": start,
-                "end": end,
+                "start": start.strip(),
+                "end": end.strip(),
                 "speaker": speaker,
-                "text": text,
+                "text": text.strip(),
             })
 
     return segments
@@ -473,6 +458,8 @@ def write_subtitles(
 
         start|end|speaker|text
     """
+
+    path = Path(path)
 
     with path.open(
         "w",
@@ -500,17 +487,19 @@ def get_segment_label(
     segment,
     index,
 ):
-
     return segment.get(
         "_label",
         str(index),
     )
 
 
+# ============================================================
+# TEXTO DE AYUDA PARA TELEGRAM
+# ============================================================
+
 def format_subtitles_for_telegram(
     segments,
 ):
-
     lines = [
         "📝 SUBTÍTULOS ACTUALES",
         "",
@@ -520,7 +509,6 @@ def format_subtitles_for_telegram(
         segments,
         start=1,
     ):
-
         text = segment.get(
             "text",
             "",
@@ -618,12 +606,25 @@ def format_subtitles_for_telegram(
     return "\n".join(lines)
 
 
-def parse_custom_time(value):
+# ============================================================
+# TIEMPOS
+# ============================================================
 
-    value = value.strip()
+def parse_custom_time(value):
+    """
+    Convierte:
+
+        0.7  -> 7 segundos
+        0.12 -> 12 segundos
+        1.2  -> 1 minuto + 2 segundos
+        1.15 -> 1 minuto + 15 segundos
+
+    También admite un número sin punto como minutos.
+    """
+
+    value = str(value).strip()
 
     if not value:
-
         raise ValueError(
             "Tiempo vacío."
         )
@@ -639,13 +640,11 @@ def parse_custom_time(value):
         seconds_text = parts[1]
 
         if not minutes_text.isdigit():
-
             raise ValueError(
                 f"Minutos no válidos: {value}"
             )
 
         if not seconds_text.isdigit():
-
             raise ValueError(
                 f"Segundos no válidos: {value}"
             )
@@ -659,7 +658,6 @@ def parse_custom_time(value):
         )
 
         if seconds >= 60:
-
             raise ValueError(
                 f"Los segundos deben estar "
                 f"entre 0 y 59: {value}"
@@ -671,7 +669,6 @@ def parse_custom_time(value):
         )
 
     if value.isdigit():
-
         return int(value) * 60
 
     raise ValueError(
@@ -680,11 +677,108 @@ def parse_custom_time(value):
 
 
 def format_seconds(seconds):
-
     return f"{float(seconds):.3f}"
 
 
+def get_numeric_time(
+    segment,
+    key,
+):
+    return float(
+        segment.get(
+            key,
+            0,
+        )
+    )
+
+
+def calculate_auto_time(
+    previous_segment,
+    next_segment,
+    position,
+    total,
+):
+    previous_end = get_numeric_time(
+        previous_segment,
+        "end",
+    )
+
+    if next_segment is not None:
+        next_start = get_numeric_time(
+            next_segment,
+            "start",
+        )
+    else:
+        next_start = previous_end + 3.0
+
+    available = (
+        next_start
+        - previous_end
+    )
+
+    if available <= 0.05:
+        raise ValueError(
+            "No hay espacio suficiente entre "
+            "los subtítulos para insertar "
+            "la nueva frase automáticamente."
+        )
+
+    margin = min(
+        0.03,
+        available / 10,
+    )
+
+    usable = (
+        available
+        - (margin * 2)
+    )
+
+    if usable <= 0.05:
+        raise ValueError(
+            "El espacio disponible es demasiado "
+            "pequeño para insertar el subtítulo."
+        )
+
+    duration = usable / total
+
+    start = (
+        previous_end
+        + margin
+        + (position * duration)
+    )
+
+    end = (
+        previous_end
+        + margin
+        + ((position + 1) * duration)
+    )
+
+    return (
+        start,
+        end,
+    )
+
+
+# ============================================================
+# PARSER DE CORRECCIONES
+# ============================================================
+
 def parse_correction_line(line):
+    """
+    Admite:
+
+        3. Texto corregido
+        3. @1
+        3. @1 Texto corregido
+
+        2.1 Texto nuevo
+        2.2 Otra frase
+
+        2.1 [0.4-0.5] Texto nuevo
+
+        @1 > @2
+        @2 > @3
+    """
 
     line = line.strip()
 
@@ -692,12 +786,7 @@ def parse_correction_line(line):
         return None
 
     # ========================================================
-    # PRIMERO COMPROBAMOS SI ES UN INTERCAMBIO GLOBAL
-    #
-    # Ejemplo:
-    #
-    # @1 > @2
-    #
+    # INTERCAMBIO GLOBAL
     # ========================================================
 
     swap_match = re.match(
@@ -706,6 +795,7 @@ def parse_correction_line(line):
         r"@([A-Za-z0-9_-]+)"
         r"$",
         line,
+        re.IGNORECASE,
     )
 
     if swap_match:
@@ -725,7 +815,7 @@ def parse_correction_line(line):
         }
 
     # ========================================================
-    # CORRECCIONES NORMALES
+    # CORRECCIÓN NORMAL
     # ========================================================
 
     match = re.match(
@@ -753,7 +843,7 @@ def parse_correction_line(line):
     end = None
 
     # ========================================================
-    # TIEMPOS OPCIONALES
+    # TIEMPOS
     # ========================================================
 
     time_match = re.match(
@@ -769,22 +859,15 @@ def parse_correction_line(line):
     if time_match:
 
         start = time_match.group(1)
-
         end = time_match.group(2)
 
-        content = time_match.group(3).strip()
+        content = (
+            time_match.group(3)
+            .strip()
+        )
 
     # ========================================================
-    # SPEAKER OPCIONAL
-    #
-    # @1
-    # @2
-    # @3
-    #
-    # o:
-    #
-    # @kuraimure
-    # @speaker_2
+    # SPEAKER
     # ========================================================
 
     speaker = None
@@ -797,12 +880,8 @@ def parse_correction_line(line):
 
     if speaker_match:
 
-        raw_speaker = (
-            speaker_match.group(1)
-        )
-
         speaker = normalize_speaker(
-            raw_speaker
+            speaker_match.group(1)
         )
 
         content = (
@@ -821,97 +900,14 @@ def parse_correction_line(line):
     }
 
 
-def get_numeric_time(
-    segment,
-    key,
-):
-
-    return float(
-        segment.get(
-            key,
-            0,
-        )
-    )
-
-
-def calculate_auto_time(
-    previous_segment,
-    next_segment,
-    position,
-    total,
-):
-
-    previous_end = get_numeric_time(
-        previous_segment,
-        "end",
-    )
-
-    next_start = (
-        get_numeric_time(
-            next_segment,
-            "start",
-        )
-        if next_segment is not None
-        else previous_end + 3.0
-    )
-
-    available = (
-        next_start
-        - previous_end
-    )
-
-    if available <= 0.05:
-
-        raise ValueError(
-            "No hay espacio suficiente entre "
-            "los subtítulos para insertar "
-            "la nueva frase automáticamente."
-        )
-
-    margin = min(
-        0.03,
-        available / 10,
-    )
-
-    usable = (
-        available
-        - (margin * 2)
-    )
-
-    if usable <= 0.05:
-
-        raise ValueError(
-            "El espacio disponible es demasiado "
-            "pequeño para insertar el subtítulo."
-        )
-
-    duration = (
-        usable / total
-    )
-
-    start = (
-        previous_end
-        + margin
-        + (position * duration)
-    )
-
-    end = (
-        previous_end
-        + margin
-        + ((position + 1) * duration)
-    )
-
-    return (
-        start,
-        end,
-    )
-
+# ============================================================
+# APLICAR CORRECCIONES
+# ============================================================
 
 def apply_corrections(
     segments,
     correction_text,
 ):
-
     lines = [
         line.strip()
         for line in correction_text.splitlines()
@@ -919,7 +915,6 @@ def apply_corrections(
     ]
 
     if not lines:
-
         return segments, False
 
     updated = [
@@ -928,19 +923,16 @@ def apply_corrections(
     ]
 
     # ========================================================
-    # ASEGURAR SPEAKERS
+    # NORMALIZAR SPEAKERS
     # ========================================================
 
     for segment in updated:
-
         segment["speaker"] = normalize_speaker(
             segment.get(
                 "speaker",
                 DEFAULT_SPEAKER,
             )
         )
-
-    changed = False
 
     # ========================================================
     # ASEGURAR ETIQUETAS
@@ -950,22 +942,15 @@ def apply_corrections(
         updated,
         start=1,
     ):
-
         segment.setdefault(
             "_label",
             str(index),
         )
 
+    changed = False
+
     # ========================================================
-    # PROCESAR INTERCAMBIOS GLOBALES
-    #
-    # @1 > @2
-    #
-    # Esto cambia todos los subtítulos:
-    #
-    # kuraimure <-> speaker_2
-    #
-    # Los demás permanecen exactamente igual.
+    # PRIMERO: INTERCAMBIOS GLOBALES
     # ========================================================
 
     normal_lines = []
@@ -990,13 +975,11 @@ def apply_corrections(
             ]
 
             if speaker_a == speaker_b:
-
                 print(
                     f"No se puede intercambiar "
                     f"el mismo speaker: "
                     f"{speaker_a}"
                 )
-
                 continue
 
             print(
@@ -1016,23 +999,19 @@ def apply_corrections(
                 if current_speaker == speaker_a:
 
                     segment["speaker"] = speaker_b
-
                     changed = True
 
                 elif current_speaker == speaker_b:
 
                     segment["speaker"] = speaker_a
-
                     changed = True
 
             continue
 
-        normal_lines.append(
-            line
-        )
+        normal_lines.append(line)
 
     # ========================================================
-    # PROCESAR CORRECCIONES NORMALES
+    # CORRECCIONES NORMALES
     # ========================================================
 
     insertions = []
@@ -1077,14 +1056,11 @@ def apply_corrections(
         if insertion_index is not None:
 
             if not new_text:
-
                 print(
                     f"No se puede insertar "
-                    f"{base_index}."
-                    f"{insertion_index} "
+                    f"{base_index}.{insertion_index} "
                     f"sin texto."
                 )
-
                 continue
 
             insertions.append({
@@ -1102,20 +1078,22 @@ def apply_corrections(
         # MODIFICAR SUBTÍTULO EXISTENTE
         # ====================================================
 
-        if base_index <= len(updated):
+        if 1 <= base_index <= len(updated):
 
             segment = updated[
                 base_index - 1
             ]
 
-            # =================================================
+            # ------------------------------------------------
             # CAMBIO DE TIEMPO
-            # =================================================
+            # ------------------------------------------------
 
-            if new_start is not None:
+            if (
+                new_start is not None
+                and new_end is not None
+            ):
 
                 try:
-
                     start_value = parse_custom_time(
                         new_start
                     )
@@ -1152,9 +1130,9 @@ def apply_corrections(
 
                 changed = True
 
-            # =================================================
+            # ------------------------------------------------
             # CAMBIO DE SPEAKER
-            # =================================================
+            # ------------------------------------------------
 
             if new_speaker is not None:
 
@@ -1170,9 +1148,9 @@ def apply_corrections(
                     f"{segment['speaker']}"
                 )
 
-            # =================================================
+            # ------------------------------------------------
             # CAMBIO DE TEXTO
-            # =================================================
+            # ------------------------------------------------
 
             if new_text:
 
@@ -1273,9 +1251,7 @@ def apply_corrections(
                 ),
                 "speaker": speaker,
                 "text": new_text,
-                "_label": str(
-                    base_index
-                ),
+                "_label": str(base_index),
             })
 
             changed = True
@@ -1291,11 +1267,15 @@ def apply_corrections(
             continue
 
         print(
-            f"No se puede procesar la línea: {line}"
+            f"No se puede procesar la línea: "
+            f"{line}"
         )
 
     # ========================================================
-    # PROCESAR INSERCIONES 2.1 / 2.2 / 3.1...
+    # INSERTAR 2.1 / 2.2 / 3.1...
+    #
+    # Se procesan de mayor índice a menor para que insertar
+    # un bloque no cambie la posición de los bloques anteriores.
     # ========================================================
 
     grouped = {}
@@ -1309,11 +1289,16 @@ def apply_corrections(
         grouped.setdefault(
             base_index,
             [],
-        ).append(
-            insertion
-        )
+        ).append(insertion)
 
-    for base_index, group in grouped.items():
+    for base_index in sorted(
+        grouped.keys(),
+        reverse=True,
+    ):
+
+        group = grouped[
+            base_index
+        ]
 
         if base_index < 1:
 
@@ -1361,8 +1346,11 @@ def apply_corrections(
             )
         )
 
-        seen_indexes = set()
+        # ----------------------------------------------------
+        # ELIMINAR ÍNDICES DUPLICADOS
+        # ----------------------------------------------------
 
+        seen_indexes = set()
         valid_group = []
 
         for item in group:
@@ -1375,7 +1363,8 @@ def apply_corrections(
 
                 print(
                     f"Índice duplicado: "
-                    f"{base_index}.{insertion_index}"
+                    f"{base_index}."
+                    f"{insertion_index}"
                 )
 
                 continue
@@ -1384,18 +1373,18 @@ def apply_corrections(
                 insertion_index
             )
 
-            valid_group.append(
-                item
-            )
+            valid_group.append(item)
 
-        total = len(
-            valid_group
-        )
+        total = len(valid_group)
 
         if total == 0:
             continue
 
         new_segments = []
+
+        # ----------------------------------------------------
+        # CREAR NUEVOS SEGMENTOS
+        # ----------------------------------------------------
 
         for position, item in enumerate(
             valid_group
@@ -1498,6 +1487,8 @@ def apply_corrections(
         if not new_segments:
             continue
 
+        # Insertar inmediatamente después del
+        # subtítulo base.
         insertion_position = base_index
 
         updated[
@@ -1508,7 +1499,7 @@ def apply_corrections(
         changed = True
 
     # ========================================================
-    # ORDENAR POR TIEMPO
+    # ORDENAR CRONOLÓGICAMENTE
     # ========================================================
 
     updated.sort(
@@ -1520,11 +1511,16 @@ def apply_corrections(
     return updated, changed
 
 
+# ============================================================
+# ESTADO DE REVISIÓN
+# ============================================================
+
 def update_review_state(
     path,
     status,
     correction=None,
 ):
+    path = Path(path)
 
     with path.open(
         "r",
@@ -1538,7 +1534,6 @@ def update_review_state(
     ).isoformat()
 
     state["status"] = status
-
     state["updated_at"] = now
 
     if status == "revision_requested":
@@ -1571,12 +1566,15 @@ def update_review_state(
         )
 
 
+# ============================================================
+# REGENERAR VÍDEO
+# ============================================================
+
 def rerender_video(
     tiktok_video,
     subtitles,
     output_video,
 ):
-
     command = [
         sys.executable,
         "src/subtitle_burner.py",
@@ -1585,24 +1583,30 @@ def rerender_video(
         str(output_video),
     ]
 
+    print(
+        "Regenerando vídeo con los subtítulos..."
+    )
+
     subprocess.run(
         command,
         check=True,
     )
 
 
+# ============================================================
+# TELEGRAM UPDATES
+# ============================================================
+
 def get_updates(
     token,
     offset,
 ):
-
     data = {
         "limit": 100,
         "timeout": POLL_TIMEOUT_SECONDS,
     }
 
     if offset is not None:
-
         data["offset"] = offset
 
     return api_call(
@@ -1611,6 +1615,10 @@ def get_updates(
         data,
     )
 
+
+# ============================================================
+# FLUJO PRINCIPAL DE REVISIÓN
+# ============================================================
 
 def run_review(
     token,
@@ -1622,6 +1630,32 @@ def run_review(
     vertical_video_path,
     timeout_seconds,
 ):
+    """
+    Flujo:
+
+    1. Lee metadata y subtítulos.
+    2. Pone el estado en pending.
+    3. Limpia mensajes anteriores de Telegram.
+    4. Envía el vídeo.
+    5. Espera autorización, descarte o corrección.
+    6. Si hay corrección:
+       - modifica subtítulos
+       - regenera vídeo
+       - vuelve a enviarlo
+    7. Continúa hasta aprobar, descartar o agotar timeout.
+    """
+
+    video_path = Path(video_path)
+    metadata_path = Path(metadata_path)
+    review_state_path = Path(review_state_path)
+    subtitles_path = Path(subtitles_path)
+    vertical_video_path = Path(
+        vertical_video_path
+    )
+
+    # ========================================================
+    # LEER METADATA
+    # ========================================================
 
     with metadata_path.open(
         "r",
@@ -1630,18 +1664,34 @@ def run_review(
 
         metadata = json.load(file)
 
+    # ========================================================
+    # LEER SUBTÍTULOS
+    # ========================================================
+
     segments = read_subtitles(
         subtitles_path
     )
+
+    # ========================================================
+    # ESTADO INICIAL
+    # ========================================================
 
     update_review_state(
         review_state_path,
         "pending",
     )
 
+    # ========================================================
+    # LIMPIAR UPDATES ANTERIORES
+    # ========================================================
+
     offset = clear_pending_updates(
         token
     )
+
+    # ========================================================
+    # ENVIAR VÍDEO
+    # ========================================================
 
     message_id = send_video(
         token,
@@ -1654,12 +1704,20 @@ def run_review(
         "Vídeo enviado a Telegram para revisión."
     )
 
+    # ========================================================
+    # TIMEOUT
+    # ========================================================
+
     deadline = (
         time.time()
         + timeout_seconds
     )
 
     waiting_for_correction = False
+
+    # ========================================================
+    # BUCLE DE REVISIÓN
+    # ========================================================
 
     while time.time() < deadline:
 
@@ -1674,6 +1732,10 @@ def run_review(
                 update["update_id"]
                 + 1
             )
+
+            # =================================================
+            # CALLBACKS DE BOTONES
+            # =================================================
 
             callback = update.get(
                 "callback_query"
@@ -1705,6 +1767,10 @@ def run_review(
                     "data"
                 )
 
+                # =============================================
+                # AUTORIZAR
+                # =============================================
+
                 if data == "approve":
 
                     answer_callback(
@@ -1727,6 +1793,10 @@ def run_review(
 
                     return "approved"
 
+                # =============================================
+                # DESCARTAR
+                # =============================================
+
                 if data == "reject":
 
                     answer_callback(
@@ -1748,6 +1818,10 @@ def run_review(
                     )
 
                     return "rejected"
+
+                # =============================================
+                # CORREGIR
+                # =============================================
 
                 if data == "revise":
 
@@ -1774,8 +1848,16 @@ def run_review(
 
                     continue
 
+            # =================================================
+            # SI NO ESTAMOS ESPERANDO CORRECCIÓN
+            # =================================================
+
             if not waiting_for_correction:
                 continue
+
+            # =================================================
+            # MENSAJE DE TEXTO
+            # =================================================
 
             message = (
                 update.get("message")
@@ -1798,12 +1880,19 @@ def run_review(
                 continue
 
             correction_text = (
-                message.get("text", "")
+                message.get(
+                    "text",
+                    "",
+                )
                 .strip()
             )
 
             if not correction_text:
                 continue
+
+            # =================================================
+            # APLICAR CORRECCIÓN
+            # =================================================
 
             updated_segments, changed = (
                 apply_corrections(
@@ -1819,21 +1908,29 @@ def run_review(
                     chat_id,
                     "❌ No he podido interpretar "
                     "la corrección.\n\n"
+
                     "Para cambiar solo el texto:\n"
                     "3. Texto corregido\n\n"
+
                     "Para cambiar solo el color/hablante:\n"
                     "3. @1\n\n"
+
                     "Para cambiar texto + color:\n"
                     "3. @1 Texto corregido\n\n"
+
                     "Para intercambiar speakers:\n"
                     "@1 > @2\n"
                     "➡️ Intercambia todos los @1 y @2.\n\n"
+
                     "Los demás speakers se mantienen igual.\n\n"
+
                     "Para añadir entre dos:\n"
                     "2.1 Texto nuevo\n"
                     "2.2 Otra frase\n\n"
+
                     "Para controlar el tiempo:\n"
                     "2.1 [0.4-0.5] Texto nuevo\n\n"
+
                     "🎨 SPEAKERS:\n"
                     "@1 → Kurai (kuraimure) → negro\n"
                     "@2 → Speaker 2\n"
@@ -1845,12 +1942,24 @@ def run_review(
 
                 continue
 
+            # =================================================
+            # ACTUALIZAR SEGMENTOS
+            # =================================================
+
             segments = updated_segments
+
+            # =================================================
+            # GUARDAR SUBTÍTULOS
+            # =================================================
 
             write_subtitles(
                 subtitles_path,
                 segments,
             )
+
+            # =================================================
+            # REGENERAR VÍDEO
+            # =================================================
 
             rerender_video(
                 vertical_video_path,
@@ -1858,16 +1967,26 @@ def run_review(
                 video_path,
             )
 
+            # =================================================
+            # GUARDAR HISTORIAL DE CORRECCIÓN
+            # =================================================
+
             update_review_state(
                 review_state_path,
                 "revision_requested",
                 correction_text,
             )
 
+            # Volvemos a pending mientras
+            # esperamos la nueva revisión.
             update_review_state(
                 review_state_path,
                 "pending",
             )
+
+            # =================================================
+            # ENVIAR NUEVO VÍDEO
+            # =================================================
 
             message_id = send_video(
                 token,
@@ -1891,11 +2010,19 @@ def run_review(
                 "Vídeo regenerado tras corrección."
             )
 
+    # ========================================================
+    # TIMEOUT
+    # ========================================================
+
     raise TimeoutError(
         "Se agotó el tiempo de espera "
         "de revisión de Telegram."
     )
 
+
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == "__main__":
 
@@ -1936,11 +2063,21 @@ if __name__ == "__main__":
     result = run_review(
         token=token,
         chat_id=chat_id,
-        video_path=Path(sys.argv[1]),
-        metadata_path=Path(sys.argv[2]),
-        review_state_path=Path(sys.argv[3]),
-        subtitles_path=Path(sys.argv[4]),
-        vertical_video_path=Path(sys.argv[5]),
+        video_path=Path(
+            sys.argv[1]
+        ),
+        metadata_path=Path(
+            sys.argv[2]
+        ),
+        review_state_path=Path(
+            sys.argv[3]
+        ),
+        subtitles_path=Path(
+            sys.argv[4]
+        ),
+        vertical_video_path=Path(
+            sys.argv[5]
+        ),
         timeout_seconds=int(
             sys.argv[6]
         ),
