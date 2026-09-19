@@ -289,6 +289,11 @@ def send_video(token, chat_id, video_path, metadata):
 
     file_size = video_path.stat().st_size
 
+    # Convertimos metadata a texto antes de construir
+    # los datos del envío para evitar pasar el diccionario
+    # directamente como caption.
+    caption = build_caption(metadata)
+
     if file_size > 50 * 1024 * 1024:
         method = "sendDocument"
         file_field_name = "document"
@@ -298,7 +303,7 @@ def send_video(token, chat_id, video_path, metadata):
 
     data = {
         "chat_id": str(chat_id),
-        "caption": build_caption(metadata),
+        "caption": caption,
         "reply_markup": json.dumps(
             review_keyboard(),
             ensure_ascii=False,
